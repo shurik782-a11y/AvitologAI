@@ -29,3 +29,12 @@ description: AvitologAI — Telegram WebApp for Avito creatives via OpenRouter, 
 - Isolate by `project_id`
 - Commit + push after feature work
 - Absolute HTTPS image URLs in XML (`PUBLIC_BASE_URL`)
+- Emit explicit Russian status lines via `app/services/status_steps.emit_status` (`meta.status=true`); exclude them from LLM history
+
+## Status steps (chat)
+
+**Onboarding:** Выделяю основные критерии → Фиксирую идею → Устанавливаю ограничения → Прописываю промпты → summary.
+
+**Creative:** Обрабатываю запрос → (revise: Фиксирую ошибку + Выполняю правки + memory `mistake`/`fix_rule`) → Даю задание на генерацию → Делегирую создание текста → optional image → Формирую публикацию → delivery.
+
+**Approve:** Отправляю на публикацию → Готово….

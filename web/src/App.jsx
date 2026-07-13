@@ -139,20 +139,33 @@ export default function App() {
     if (!projectId || (!draft.trim() && photos.length === 0)) return;
     setBusy(true);
     setError("");
+    const poll = setInterval(async () => {
+      try {
+        setMessages(await api.getMessages(projectId));
+      } catch {
+        /* ignore poll errors while waiting */
+      }
+    }, 700);
     try {
       const res = await api.chat(projectId, {
         content: draft.trim(),
         images: photos,
         revise_of_creative_id: creative?.id || null,
       });
-      setMessages((m) => [...m, ...res.messages]);
+      setMessages(await api.getMessages(projectId));
       setCreative(res.creative);
       setDraft("");
       setPhotos([]);
       if (res.onboarding_done) await refreshProjects();
     } catch (e) {
       setError(e.message);
+      try {
+        setMessages(await api.getMessages(projectId));
+      } catch {
+        /* keep previous */
+      }
     } finally {
+      clearInterval(poll);
       setBusy(false);
     }
   }
@@ -160,6 +173,13 @@ export default function App() {
   async function approve() {
     if (!projectId || !creative) return;
     setBusy(true);
+    const poll = setInterval(async () => {
+      try {
+        setMessages(await api.getMessages(projectId));
+      } catch {
+        /* ignore */
+      }
+    }, 700);
     try {
       const res = await api.approve(projectId, creative.id);
       setCreative(res.creative);
@@ -167,6 +187,7 @@ export default function App() {
     } catch (e) {
       setError(e.message);
     } finally {
+      clearInterval(poll);
       setBusy(false);
     }
   }
@@ -457,12 +478,15 @@ function ChatPanel({
       </div>
       <div className="messages">
         {!messages.length && <div className="empty-inline">Опишите товар или прикрепите фото.</div>}
-        {messages.map((m) => (
-          <div key={m.id} className={`bubble ${m.role}`}>
-            <div className="role">{m.role === "user" ? "Вы" : "Авитолог"}</div>
-            <div className="body">{m.content}</div>
-          </div>
-        ))}
+        {messages.map((m) => {
+          const isStatus = !!m.meta?.status;
+          return (
+            <div key={m.id} className={`bubble ${m.role}${isStatus ? " status" : ""}`}>
+              <div className="role">{m.role === "user" ? "Вы" : isStatus ? "Статус" : "Авитолог"}</div>
+              <div className="body">{m.content}</div>
+            </div>
+          );
+        })}
         {creative && (
           <div className="creative">
             <div className="creative-title">{creative.title || "Креатив"}</div>

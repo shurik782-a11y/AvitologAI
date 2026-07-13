@@ -105,20 +105,27 @@ async def _run_publish(db: Session, project: Project) -> PublishRun:
     return run
 
 
-def approve_and_publish_sync_message(db: Session, project: Project, creative: Creative, feed_url: str, run: PublishRun | None) -> None:
-    msg = (
-        f"Креатив утверждён и добавлен в XML-фид.\nFeed: {feed_url}\n"
-        + (
-            f"Статус подгрузки: {run.status}"
-            if run
-            else "Запустите подгрузку в разделе Публикации."
-        )
+def approve_and_publish_sync_message(
+    db: Session, project: Project, creative: Creative, feed_url: str, run: PublishRun | None
+) -> list[Message]:
+    from app.services.status_steps import emit_status
+
+    status = emit_status(db, project.id, "Отправляю на публикацию", "publish")
+    detail = (
+        f"Статус подгрузки: {run.status}"
+        if run
+        else "Фид обновлён — подгрузку можно запустить в разделе Публикации."
     )
-    db.add(
-        Message(
-            project_id=project.id,
-            role="assistant",
-            content=msg,
-            meta={"creative_id": creative.id, "approved": True, "feed_url": feed_url},
-        )
+    ready = Message(
+        project_id=project.id,
+        role="assistant",
+        content=(
+            f"Готово: объявление «{creative.title or creative.id}» добавлено в XML-фид.\n"
+            f"{detail}\nFeed: {feed_url}"
+        ),
+        meta={"creative_id": creative.id, "approved": True, "feed_url": feed_url, "delivery": True},
     )
+    db.add(ready)
+    db.commit()
+    db.refresh(ready)
+    return [status, ready]

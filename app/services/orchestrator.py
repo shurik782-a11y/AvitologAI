@@ -1,4 +1,4 @@
-"""Orchestrator: project context + memory + vision + creative + optional images."""
+"""Orchestrator: project context + memory + vision + creative + explicit status steps."""
 from __future__ import annotations
 
 import json
@@ -20,6 +20,7 @@ from app.services.openrouter import (
     chat_completions,
     generate_image,
 )
+from app.services.status_steps import emit_status, is_status_message
 
 
 def get_app_settings(db: Session) -> AppSettings:
@@ -91,10 +92,11 @@ async def run_orchestrator(
     user_text: str,
     images: list[str] | None = None,
     revise_of_creative_id: int | None = None,
-) -> tuple[Message, Message, Creative]:
+) -> tuple[Message, list[Message], Creative]:
     cfg = get_app_settings(db)
     api_key = cfg.openrouter_api_key or settings.openrouter_api_key
     images = images or []
+    status_msgs: list[Message] = []
 
     user_msg = Message(
         project_id=project.id,
@@ -108,8 +110,28 @@ async def run_orchestrator(
     db.commit()
     db.refresh(user_msg)
 
-    if revise_of_creative_id and user_text.strip():
-        memory_svc.remember_revision(db, project.id, user_text)
+    status_msgs.append(emit_status(db, project.id, "Обрабатываю запрос", "process"))
+
+    prev_creative = db.get(Creative, revise_of_creative_id) if revise_of_creative_id else None
+    if prev_creative and user_text.strip():
+        brief = user_text.strip().replace("\n", " ")
+        if len(brief) > 180:
+            brief = brief[:177] + "…"
+        status_msgs.append(
+            emit_status(
+                db,
+                project.id,
+                f"Фиксирую ошибку: {brief}",
+                "mistake",
+            )
+        )
+        memory_svc.remember_mistake(
+            db,
+            project.id,
+            user_text,
+            prev_title=prev_creative.title or "",
+        )
+        status_msgs.append(emit_status(db, project.id, "Выполняю правки", "revise"))
 
     mem_block = memory_svc.memories_as_prompt(db, project.id)
     project_block = (
@@ -124,13 +146,15 @@ async def run_orchestrator(
             select(Message)
             .where(Message.project_id == project.id)
             .order_by(Message.id.desc())
-            .limit(12)
+            .limit(24)
         )
     )
     history_rows = list(reversed(history_rows))
     history_msgs: list[dict[str, Any]] = []
     for m in history_rows:
         if m.id == user_msg.id:
+            continue
+        if is_status_message(m):
             continue
         history_msgs.append(
             {
@@ -185,7 +209,8 @@ async def run_orchestrator(
                 )
             )
 
-    prev_creative = db.get(Creative, revise_of_creative_id) if revise_of_creative_id else None
+    status_msgs.append(emit_status(db, project.id, "Даю задание на генерацию", "assign"))
+    status_msgs.append(emit_status(db, project.id, "Делегирую создание текста", "text"))
 
     instruction = (
         project.orchestrator_prompt
@@ -201,7 +226,8 @@ async def run_orchestrator(
     if prev_creative:
         system += (
             f"\n\nПредыдущий черновик:\ntitle={prev_creative.title}\n"
-            f"description={prev_creative.description}\nimage_prompt={prev_creative.image_prompt}"
+            f"description={prev_creative.description}\nimage_prompt={prev_creative.image_prompt}\n"
+            "Учти правки пользователя и память mistake/fix_rule — не повторяй ту же ошибку."
         )
 
     if vision_images:
@@ -228,6 +254,9 @@ async def run_orchestrator(
     if style and image_prompt:
         image_prompt = f"{image_prompt}\n\nStyle: {style}"
     if need_images and image_prompt:
+        status_msgs.append(
+            emit_status(db, project.id, "Делегирую создание изображения", "image")
+        )
         try:
             blobs = await generate_image(api_key, model=image_model, prompt=image_prompt, n=1)
             for blob in blobs:
@@ -243,6 +272,8 @@ async def run_orchestrator(
                 )
             )
             parsed["analysis"] = (str(parsed.get("analysis") or "") + f"\n[image error] {exc}").strip()
+
+    status_msgs.append(emit_status(db, project.id, "Формирую публикацию", "compose"))
 
     price = ""
     if isinstance(parsed.get("price"), (str, int, float)):
@@ -271,7 +302,7 @@ async def run_orchestrator(
         role="assistant",
         content=pretty,
         attachments=creative.images,
-        meta={"need_images": need_images},
+        meta={"need_images": need_images, "delivery": True},
     )
     db.add(assistant_msg)
     db.add(MetricEvent(project_id=project.id, name="creative.created", value=1))
@@ -283,4 +314,4 @@ async def run_orchestrator(
     db.add(assistant_msg)
     db.commit()
     db.refresh(assistant_msg)
-    return user_msg, assistant_msg, creative
+    return user_msg, [*status_msgs, assistant_msg], creative

@@ -1,4 +1,4 @@
-"""Onboarding: first chat setup → project fields."""
+"""Onboarding: first chat setup → project fields with explicit status steps."""
 from __future__ import annotations
 
 import json
@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import AppSettings, Message, MetricEvent, Project
 from app.services.openrouter import OpenRouterError, chat_completions
+from app.services.status_steps import emit_status
 
 ONBOARDING_SEED = (
     "Давайте выполним настройку\n\n"
@@ -47,16 +48,28 @@ def _parse_json(text: str) -> dict[str, Any]:
     }
 
 
-async def run_onboarding(db: Session, project: Project, user_text: str) -> tuple[Message, Message]:
+async def run_onboarding(
+    db: Session, project: Project, user_text: str
+) -> tuple[Message, list[Message]]:
+    """Returns user message and all new assistant messages (statuses + summary)."""
     cfg = db.get(AppSettings, 1)
     assert cfg is not None
     api_key = cfg.openrouter_api_key or settings.openrouter_api_key
     model = (project.orchestrator_model or cfg.orchestrator_model or settings.orchestrator_model).strip()
 
-    user_msg = Message(project_id=project.id, role="user", content=user_text, attachments=[], meta={"onboarding": True})
+    user_msg = Message(
+        project_id=project.id,
+        role="user",
+        content=user_text,
+        attachments=[],
+        meta={"onboarding": True},
+    )
     db.add(user_msg)
     db.commit()
     db.refresh(user_msg)
+
+    out: list[Message] = []
+    out.append(emit_status(db, project.id, "Выделяю основные критерии", "criteria"))
 
     system = (
         "Ты настраиваешь проект AvitologAI. Из текста пользователя извлеки поля для объявлений Авито. "
@@ -95,23 +108,50 @@ async def run_onboarding(db: Session, project: Project, user_text: str) -> tuple
             )
         )
 
-    for key in (
-        "theme",
-        "ideas",
-        "constraints",
-        "orchestrator_prompt",
-        "vision_prompt",
-        "image_style_prompt",
-    ):
-        val = str(data.get(key) or "").strip()
-        if val:
-            setattr(project, key, val)
+    theme = str(data.get("theme") or "").strip()
+    ideas = str(data.get("ideas") or "").strip()
+    constraints = str(data.get("constraints") or "").strip()
+    orch = str(data.get("orchestrator_prompt") or "").strip()
+    vision = str(data.get("vision_prompt") or "").strip()
+    style = str(data.get("image_style_prompt") or "").strip()
+
+    out.append(
+        emit_status(
+            db,
+            project.id,
+            f"Фиксирую идею: {ideas or theme or 'по вашему описанию'}"[:400],
+            "idea",
+        )
+    )
+    if theme:
+        project.theme = theme
+    if ideas:
+        project.ideas = ideas
+
+    out.append(
+        emit_status(
+            db,
+            project.id,
+            f"Устанавливаю ограничения: {constraints or 'без жёстких ограничений'}"[:400],
+            "constraints",
+        )
+    )
+    if constraints:
+        project.constraints = constraints
+
+    out.append(emit_status(db, project.id, "Прописываю промпты", "prompts"))
+    if orch:
+        project.orchestrator_prompt = orch
+    if vision:
+        project.vision_prompt = vision
+    if style:
+        project.image_style_prompt = style
 
     project.onboarding_status = "done"
     db.add(project)
 
     summary = (
-        "Записал настройки проекта:\n"
+        "Настройка завершена. Записал:\n"
         f"• Тема: {project.theme or '—'}\n"
         f"• Идеи: {project.ideas or '—'}\n"
         f"• Ограничения: {project.constraints or '—'}\n\n"
@@ -129,4 +169,5 @@ async def run_onboarding(db: Session, project: Project, user_text: str) -> tuple
     db.commit()
     db.refresh(user_msg)
     db.refresh(assistant)
-    return user_msg, assistant
+    out.append(assistant)
+    return user_msg, out

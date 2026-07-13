@@ -261,6 +261,16 @@ h1 {
   background: var(--accent-soft);
   border-color: #d5e0f2;
 }
+.bubble.status {
+  max-width: 72%;
+  padding: 0.45rem 0.75rem;
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.bubble.status .role { display: none; }
+.bubble.status .body { font-family: var(--mono); font-size: 0.82rem; }
 .bubble .role { font-size: 0.72rem; color: var(--muted); margin-bottom: 0.2rem; }
 .creative-title { font-family: var(--display); font-weight: 700; font-size: 1.1rem; }
 .creative pre {

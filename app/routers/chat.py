@@ -50,13 +50,14 @@ async def chat(project_id: int, body: ChatRequest, db: Session = Depends(get_db)
         raise HTTPException(404, "Project not found")
     try:
         if (project.onboarding_status or "") == "awaiting_brief":
-            user_msg, assistant_msg = await run_onboarding(db, project, body.content)
+            user_msg, assistant_msgs = await run_onboarding(db, project, body.content)
             return ChatResponse(
-                messages=[MessageOut.model_validate(user_msg), MessageOut.model_validate(assistant_msg)],
+                messages=[MessageOut.model_validate(user_msg)]
+                + [MessageOut.model_validate(m) for m in assistant_msgs],
                 creative=None,
                 onboarding_done=True,
             )
-        user_msg, assistant_msg, creative = await run_orchestrator(
+        user_msg, assistant_msgs, creative = await run_orchestrator(
             db,
             project,
             user_text=body.content,
@@ -68,7 +69,8 @@ async def chat(project_id: int, body: ChatRequest, db: Session = Depends(get_db)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(500, f"Orchestrator failed: {exc}") from exc
     return ChatResponse(
-        messages=[MessageOut.model_validate(user_msg), MessageOut.model_validate(assistant_msg)],
+        messages=[MessageOut.model_validate(user_msg)]
+        + [MessageOut.model_validate(m) for m in assistant_msgs],
         creative=CreativeOut.model_validate(creative) if creative else None,
         onboarding_done=False,
     )
@@ -92,6 +94,8 @@ def patch_creative(
     db.refresh(creative)
     return creative
 
+
+@router.post("/projects/{project_id}/creatives/{creative_id}/approve", response_model=ApproveResponse)
 async def approve_creative(
     project_id: int,
     creative_id: int,
