@@ -34,7 +34,14 @@ class Settings(BaseSettings):
     @property
     def db_url(self) -> str:
         if self.database_url:
-            return self.database_url
+            url = self.database_url.strip()
+            # Railway / Heroku often give postgres:// — SQLAlchemy needs postgresql://
+            if url.startswith("postgres://"):
+                url = "postgresql://" + url[len("postgres://") :]
+            # Prefer psycopg v3 driver when available
+            if url.startswith("postgresql://") and "+psycopg" not in url and "+psycopg2" not in url:
+                url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+            return url
         path = Path(self.data_dir) / "avitolog.db"
         path.parent.mkdir(parents=True, exist_ok=True)
         return f"sqlite:///{path.as_posix()}"
