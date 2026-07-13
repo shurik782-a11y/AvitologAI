@@ -30,19 +30,23 @@ async def chat_completions(
     messages: list[dict[str, Any]],
     temperature: float = 0.4,
     max_tokens: int = 2500,
+    response_format: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not api_key:
         raise OpenRouterError("OpenRouter API key не задан. Укажите ключ в Настройках.")
+    body: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if response_format:
+        body["response_format"] = response_format
     async with httpx.AsyncClient(timeout=120.0) as client:
         resp = await client.post(
             f"{settings.openrouter_base_url}/chat/completions",
             headers=_headers(api_key),
-            json={
-                "model": model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            },
+            json=body,
         )
         if resp.status_code >= 400:
             raise OpenRouterError(f"OpenRouter chat error {resp.status_code}: {resp.text[:800]}")

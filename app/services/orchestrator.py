@@ -60,14 +60,52 @@ def _parse_json_payload(text: str) -> dict[str, Any]:
                 return data
         except json.JSONDecodeError:
             pass
+    # Do NOT dump English chain-of-thought into description
     return {
-        "title": "Черновик объявления",
-        "description": text[:4000],
-        "image_prompt": "Product photo for Avito listing, clean background, high quality",
+        "title": "",
+        "description": "",
+        "sections": {},
+        "image_prompt": "",
         "image_briefs": [],
         "analysis": "",
         "need_images": True,
+        "parse_error": True,
     }
+
+
+def _looks_like_leak(text: str) -> bool:
+    t = (text or "").strip()
+    if not t:
+        return False
+    low = t.lower()
+    markers = (
+        "i need to",
+        "json object",
+        "project details",
+        "search_query",
+        "conversion_offer",
+        "image_briefs",
+        "need_images",
+        "let me ",
+        "compose the",
+        "produce the",
+        "strictly one json",
+    )
+    if any(m in low for m in markers):
+        return True
+    latin = sum(1 for c in t if ("a" <= c.lower() <= "z"))
+    cyr = sum(1 for c in t if "а" <= c.lower() <= "я" or c.lower() == "ё")
+    if latin > 80 and latin > cyr * 2:
+        return True
+    return False
+
+
+def _ru_field(text: str, *, fallback: str = "") -> str:
+    t = (text or "").strip()
+    if not t or _looks_like_leak(t):
+        return fallback
+    return t
+
 
 
 def _save_image_bytes(data: bytes, suffix: str = ".png") -> str:
@@ -110,9 +148,13 @@ def _wants_new_listing(user_text: str) -> bool:
 
 
 def _polish_title(parsed: dict[str, Any], project: Project) -> str:
-    title = str(parsed.get("title") or "").strip()
-    sq = str(parsed.get("search_query") or getattr(project, "search_query", "") or "").strip()
-    off = str(parsed.get("conversion_offer") or getattr(project, "conversion_offer", "") or "").strip()
+    title = _ru_field(str(parsed.get("title") or ""))
+    sq = _ru_field(
+        str(parsed.get("search_query") or getattr(project, "search_query", "") or "")
+    )
+    off = _ru_field(
+        str(parsed.get("conversion_offer") or getattr(project, "conversion_offer", "") or "")
+    )
     bad = (
         len(title) > 65
         or title.count(" ") > 8
@@ -129,12 +171,23 @@ def _polish_title(parsed: dict[str, Any], project: Project) -> str:
     return title
 
 
+def _clean_sections(sections: dict) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not isinstance(sections, dict):
+        return out
+    for k, v in sections.items():
+        s = _ru_field(str(v or ""))
+        if s:
+            out[str(k)] = s
+    return out
+
+
 def _polish_description(description: str, sections: dict) -> str:
     joined = join_sections(sections)
-    desc = (description or "").strip()
+    desc = _ru_field(description)
     if joined and (not desc or len(desc) < 220 or len(joined) > len(desc) + 40):
         return joined
-    return desc or joined
+    return desc or joined or "Не удалось собрать текст. Напишите правку или «сделай пост» ещё раз."
 
 
 def _text_only_edit(user_text: str, revise: bool) -> bool:
@@ -315,8 +368,10 @@ async def run_orchestrator(
     system = (
         f"{instruction}\n\n{project_block}\n\n{mem_block}\n\n"
         f"Анализ фото / стиль:\n{vision_notes or 'фото не переданы / кэш пуст'}\n\n"
-        "Один JSON-ответ. need_images=false для правок только текста. "
-        f"Число image_briefs ориентируй на photo_count={project.photo_count or 1} (max {settings.photo_count_max})."
+        "Ответь СТРОГО одним JSON. Все тексты для объявления — на русском. "
+        "Без рассуждений и без английского вне image_prompt. "
+        "need_images=false для правок только текста. "
+        f"Число image_briefs ≈ photo_count={project.photo_count or 1} (max {settings.photo_count_max})."
     )
     if is_test_run(project):
         system = test_run_system_note() + "\n\n" + system
@@ -349,16 +404,34 @@ async def run_orchestrator(
         *history_msgs,
         {"role": "user", "content": user_content},
     ]
-    raw = await chat_completions(api_key, model=orch_model, messages=messages, max_tokens=3200)
+    try:
+        raw = await chat_completions(
+            api_key,
+            model=orch_model,
+            messages=messages,
+            max_tokens=3200,
+            response_format={"type": "json_object"},
+        )
+    except OpenRouterError:
+        raw = await chat_completions(
+            api_key,
+            model=orch_model,
+            messages=messages,
+            max_tokens=3200,
+        )
     assistant_text = (raw.get("choices") or [{}])[0].get("message", {}).get("content") or ""
     parsed = _parse_json_payload(assistant_text)
 
-    sections = parsed.get("sections") if isinstance(parsed.get("sections"), dict) else {}
+    sections = _clean_sections(parsed.get("sections") if isinstance(parsed.get("sections"), dict) else {})
     description = _polish_description(
         str(parsed.get("description") or "").strip(),
         sections,
     )
     title = _polish_title(parsed, project)
+    analysis = _ru_field(str(parsed.get("analysis") or ""), fallback="")
+    if not analysis:
+        analysis = _ru_field(vision_notes, fallback="")
+    ad_idea = _ru_field(str(parsed.get("ad_idea") or project.ad_idea or ""))
 
     need_images = bool(parsed.get("need_images", True))
     if text_only:
@@ -434,9 +507,11 @@ async def run_orchestrator(
         price = str(parsed.get("price"))
 
     meta = {
-        "ad_idea": str(parsed.get("ad_idea") or project.ad_idea or ""),
-        "search_query": str(parsed.get("search_query") or project.search_query or ""),
-        "conversion_offer": str(parsed.get("conversion_offer") or project.conversion_offer or ""),
+        "ad_idea": ad_idea,
+        "search_query": _ru_field(str(parsed.get("search_query") or project.search_query or "")),
+        "conversion_offer": _ru_field(
+            str(parsed.get("conversion_offer") or project.conversion_offer or "")
+        ),
         "sections": sections or {},
         "pains": parsed.get("pains") if isinstance(parsed.get("pains"), list) else [],
         "image_briefs": briefs,
@@ -450,7 +525,7 @@ async def run_orchestrator(
         creative.title = title[:300]
         creative.description = description
         creative.image_prompt = hero_prompt
-        creative.analysis = str(parsed.get("analysis") or vision_notes)
+        creative.analysis = analysis
         if image_paths:
             creative.images = [{"url": p} for p in image_paths]
         elif text_only:
@@ -468,7 +543,7 @@ async def run_orchestrator(
             title=title[:300],
             description=description,
             image_prompt=hero_prompt,
-            analysis=str(parsed.get("analysis") or vision_notes),
+            analysis=analysis,
             images=[{"url": p} for p in image_paths],
             status="draft",
             price=price,
@@ -492,16 +567,18 @@ async def run_orchestrator(
         )
     )
 
-    idea_line = meta.get("ad_idea") or ""
-    propose = meta.get("propose_new_idea")
-    pretty = (
-        (f"_Идея:_ {idea_line}\n\n" if idea_line else "")
-        + f"**{title}**\n\n{description}\n\n"
-        + f"_Анализ:_ {creative.analysis}\n"
-        + f"_Фото-бриф:_ {hero_prompt or '—'}"
-    )
-    if propose:
-        pretty += "\n\n_Гипотеза:_ можно сделать новое объявление с другой идеей — напишите, если нужно."
+    # User-facing: Russian only, no English briefs / CoT
+    pretty_parts = [f"**{title}**", "", description]
+    if analysis:
+        pretty_parts.extend(["", analysis])
+    pretty = "\n".join(pretty_parts)
+    if meta.get("propose_new_idea"):
+        pretty += "\n\nМожно сделать вариант с другой идеей — напишите, если нужно."
+    if parsed.get("parse_error"):
+        pretty = (
+            f"**{title}**\n\n{description}\n\n"
+            "Модель ответила не JSON. Напишите «сделай пост» ещё раз или уточните правку."
+        )
 
     assistant_msg = Message(
         project_id=project.id,

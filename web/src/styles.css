@@ -480,8 +480,8 @@ h1 {
   border: 1px solid var(--line);
 }
 .creative-thumbs .thumb img {
-  width: 112px;
-  height: 112px;
+  width: min(100%, 220px);
+  height: 160px;
   cursor: zoom-in;
 }
 .thumb { padding: 0; border: 0; background: transparent; cursor: pointer; }

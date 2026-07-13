@@ -62,7 +62,11 @@ BUILTIN_ORCHESTRATOR = """Ты — AvitologAI, старший оркестрат
 - Запросы «сделай пост / сделай объявление» = сразу сгенерировать креатив JSON (need_images по умолчанию true, если не сказано иначе).
 - Если в контексте указан ТЕСТОВЫЙ ПРОГОН — публикация эмулируется; не пиши про отсутствие API.
 
-ФОРМАТ ОТВЕТА — строго один JSON без markdown:
+ФОРМАТ ОТВЕТА — строго ОДИН JSON-объект. Без markdown, без текста до/после, без рассуждений на английском.
+Все поля для человека (ad_idea, title, search_query, conversion_offer, description, sections.*, analysis, pains) — СТРОГО НА РУССКОМ.
+image_prompt / prompt в image_briefs — кратко на английском (только для генерации картинки).
+analysis — 1–2 коротких предложения по-русски (для кого объявление), без «I need…», без разбора JSON.
+
 {
   "ad_idea":"...",
   "title":"...",
@@ -81,9 +85,9 @@ BUILTIN_ORCHESTRATOR = """Ты — AvitologAI, старший оркестрат
   "price":"",
   "propose_new_idea":false
 }
-description = склейка непустых sections по порядку (абзацы). image_prompt = краткий hero-brief (EN).
+description = склейка непустых sections по порядку (абзацы). 
 need_images=false при текстовых правках / «без фото».
-title обязан быть коротким (≤55–60 символов), без keyword-stuffing; description ≥ 4–8 содержательных предложений при достаточном брифе.
+title короткий (≤55–60 символов), без keyword-stuffing; description насыщенный по слотам.
 """
 
 BUILTIN_VISION = """Ты — агент Vision в AvitologAI. Разбери фото для объявления Авито: факты + визуальный стиль.
