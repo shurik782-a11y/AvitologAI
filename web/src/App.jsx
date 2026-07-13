@@ -5,8 +5,31 @@ const NAV = [
   { id: "settings", label: "Настройки" },
   { id: "publications", label: "Публикации" },
   { id: "metrics", label: "Метрики" },
-  { id: "docs", label: "Документация" },
+  { id: "instructions", label: "Инструкции" },
 ];
+
+function buildFeedUrl(project) {
+  if (!project) return "";
+  if (project.feed_url) return project.feed_url;
+  const token = project.avito_feed_token;
+  if (!token || !project.id) return "";
+  return `${window.location.origin}/api/projects/${project.id}/avito-feed.xml?token=${encodeURIComponent(token)}`;
+}
+
+function isAvitoConfigured(project) {
+  if (!project) return false;
+  return Boolean(
+    String(project.avito_category || "").trim() &&
+      String(project.avito_address || "").trim() &&
+      String(project.avito_contact_phone || "").trim() &&
+      (project.avito_feed_token || project.feed_url)
+  );
+}
+
+async function copyText(text) {
+  if (!text) throw new Error("URL ещё не готов — сохраните настройки Avito");
+  await navigator.clipboard.writeText(text);
+}
 
 function PaperclipIcon() {
   return (
@@ -414,7 +437,7 @@ export default function App() {
             />
           )}
 
-          {section === "docs" && <DocsPanel />}
+          {section === "instructions" && <InstructionsPanel project={project} />}
         </main>
       </div>
 
@@ -559,8 +582,9 @@ function SettingsHub({ project, defaults, onOpen, onNeedProject, onSaveAvito }) 
     avito_client_id: "",
     avito_client_secret: "",
     avito_user_id: "",
-    avito_item_hint: "",
   });
+  const [avitoOpen, setAvitoOpen] = useState(true);
+  const [copyHint, setCopyHint] = useState("");
 
   useEffect(() => {
     if (!project) return;
@@ -572,6 +596,7 @@ function SettingsHub({ project, defaults, onOpen, onNeedProject, onSaveAvito }) 
       avito_client_secret: "",
       avito_user_id: project.avito_user_id || "",
     });
+    setAvitoOpen(!isAvitoConfigured(project));
   }, [project]);
 
   if (!project) {
@@ -603,6 +628,30 @@ function SettingsHub({ project, defaults, onOpen, onNeedProject, onSaveAvito }) 
     },
   ];
 
+  const feedUrl = buildFeedUrl(project);
+  const configured = isAvitoConfigured(project);
+  const apiReady = Boolean(project.avito_client_id && project.avito_client_secret_set);
+
+  async function handleSaveAvito() {
+    await onSaveAvito(avito);
+    const ready = Boolean(
+      String(avito.avito_category || "").trim() &&
+        String(avito.avito_address || "").trim() &&
+        String(avito.avito_contact_phone || "").trim()
+    );
+    if (ready) setAvitoOpen(false);
+  }
+
+  async function handleCopyUrl() {
+    try {
+      await copyText(feedUrl);
+      setCopyHint("Скопировано");
+      setTimeout(() => setCopyHint(""), 1600);
+    } catch (e) {
+      setCopyHint(e.message || "Не удалось скопировать");
+    }
+  }
+
   return (
     <section className="stack-page">
       <div className="panel-head">
@@ -622,60 +671,99 @@ function SettingsHub({ project, defaults, onOpen, onNeedProject, onSaveAvito }) 
           </button>
         ))}
       </div>
-      <div className="form-card">
-        <h3>Avito / фид</h3>
-        <label>
-          Категория
-          <input
-            value={avito.avito_category}
-            onChange={(e) => setAvito({ ...avito, avito_category: e.target.value })}
-          />
-        </label>
-        <label>
-          Адрес
-          <input
-            value={avito.avito_address}
-            onChange={(e) => setAvito({ ...avito, avito_address: e.target.value })}
-          />
-        </label>
-        <label>
-          Телефон
-          <input
-            value={avito.avito_contact_phone}
-            onChange={(e) => setAvito({ ...avito, avito_contact_phone: e.target.value })}
-          />
-        </label>
-        <label>
-          Client ID
-          <input
-            value={avito.avito_client_id}
-            onChange={(e) => setAvito({ ...avito, avito_client_id: e.target.value })}
-          />
-        </label>
-        <label>
-          Client Secret {project.avito_client_secret_set ? "(задан)" : ""}
-          <input
-            type="password"
-            value={avito.avito_client_secret}
-            onChange={(e) => setAvito({ ...avito, avito_client_secret: e.target.value })}
-            placeholder="оставьте пустым чтобы не менять"
-          />
-        </label>
-        <label>
-          User ID
-          <input
-            value={avito.avito_user_id}
-            onChange={(e) => setAvito({ ...avito, avito_user_id: e.target.value })}
-          />
-        </label>
-        {project.feed_url && (
-          <p className="mono muted" style={{ wordBreak: "break-all" }}>
-            Feed: {project.feed_url}
-          </p>
-        )}
-        <button className="primary" onClick={() => onSaveAvito(avito)}>
-          Сохранить Avito
+
+      <div className={`form-card avito-block ${configured && !avitoOpen ? "collapsed" : ""}`}>
+        <button
+          type="button"
+          className="avito-toggle"
+          onClick={() => setAvitoOpen((v) => !v)}
+          aria-expanded={avitoOpen}
+        >
+          <div>
+            <strong>Avito / Фид</strong>
+            <div className="muted mono">
+              {configured
+                ? apiReady
+                  ? "настроено · автопубликация API"
+                  : "настроено · фид по URL"
+                : "заполните поля для связки"}
+            </div>
+          </div>
+          <span className="chev">{avitoOpen ? "▾" : "›"}</span>
         </button>
+
+        {avitoOpen && (
+          <div className="avito-fields">
+            <label>
+              Категория
+              <input
+                value={avito.avito_category}
+                onChange={(e) => setAvito({ ...avito, avito_category: e.target.value })}
+                placeholder="как в Автозагрузке Авито, напр. Товары для компьютера"
+              />
+              <span className="field-hint">Куда: XML-фид → поле Category. Откуда: ваша рубрика на Авито.</span>
+            </label>
+            <label>
+              Адрес
+              <input
+                value={avito.avito_address}
+                onChange={(e) => setAvito({ ...avito, avito_address: e.target.value })}
+              />
+              <span className="field-hint">Куда: XML → Address. Откуда: город/адрес объявлений.</span>
+            </label>
+            <label>
+              Телефон
+              <input
+                value={avito.avito_contact_phone}
+                onChange={(e) => setAvito({ ...avito, avito_contact_phone: e.target.value })}
+              />
+              <span className="field-hint">Куда: XML → ContactPhone.</span>
+            </label>
+            <label>
+              Client ID
+              <input
+                value={avito.avito_client_id}
+                onChange={(e) => setAvito({ ...avito, avito_client_id: e.target.value })}
+              />
+              <span className="field-hint">
+                Откуда: Авито → Для профессионалов → API / developers.avito.ru. Нужен для автопубликации.
+              </span>
+            </label>
+            <label>
+              Client Secret {project.avito_client_secret_set ? "(задан)" : ""}
+              <input
+                type="password"
+                value={avito.avito_client_secret}
+                onChange={(e) => setAvito({ ...avito, avito_client_secret: e.target.value })}
+                placeholder="оставьте пустым чтобы не менять"
+              />
+              <span className="field-hint">Пара к Client ID. Хранится только в этом проекте.</span>
+            </label>
+            <label>
+              User ID
+              <input
+                value={avito.avito_user_id}
+                onChange={(e) => setAvito({ ...avito, avito_user_id: e.target.value })}
+              />
+              <span className="field-hint">ID пользователя Авито — для метрик объявлений.</span>
+            </label>
+            <button
+              className="primary"
+              onClick={async () => {
+                await handleSaveAvito();
+              }}
+            >
+              Сохранить Avito
+            </button>
+          </div>
+        )}
+
+        <div className="avito-copy-row">
+          <button type="button" className="btn-copy-sm" disabled={!feedUrl} onClick={handleCopyUrl}>
+            Скопировать URL
+          </button>
+          {copyHint && <span className="muted">{copyHint}</span>}
+        </div>
       </div>
     </section>
   );
@@ -758,6 +846,19 @@ function ModelSettings({ kind, project, defaults, onBack, onSave, busy }) {
 }
 
 function PublicationsPanel({ project, pubs, runs, onPublish, busy }) {
+  const feedUrl = buildFeedUrl(project);
+  const [copyHint, setCopyHint] = useState("");
+
+  async function handleCopy() {
+    try {
+      await copyText(feedUrl);
+      setCopyHint("Скопировано");
+      setTimeout(() => setCopyHint(""), 1600);
+    } catch (e) {
+      setCopyHint(e.message || "Нет URL");
+    }
+  }
+
   return (
     <section className="stack-page">
       <div className="panel-head">
@@ -768,11 +869,12 @@ function PublicationsPanel({ project, pubs, runs, onPublish, busy }) {
       </div>
       <div className="form-card">
         <p className="muted">XML-фид Автозагрузки. После утверждения креатив попадает в фид.</p>
-        {project.feed_url && (
-          <p className="mono" style={{ wordBreak: "break-all" }}>
-            {project.feed_url}
-          </p>
-        )}
+        <div className="avito-copy-row">
+          <button type="button" className="btn-copy-sm" disabled={!feedUrl} onClick={handleCopy}>
+            Скопировать URL
+          </button>
+          {copyHint && <span className="muted">{copyHint}</span>}
+        </div>
         <button className="primary" disabled={busy} onClick={onPublish}>
           Обновить фид / запустить подгрузку
         </button>
@@ -894,21 +996,177 @@ function MetricsPanel({
   );
 }
 
-function DocsPanel() {
+function InstructionsPanel({ project }) {
+  const feedUrl = buildFeedUrl(project);
+  const [copied, setCopied] = useState("");
+
+  async function copyFeed() {
+    try {
+      await copyText(feedUrl);
+      setCopied("Скопировано");
+      setTimeout(() => setCopied(""), 1600);
+    } catch (e) {
+      setCopied(e.message || "Нет URL");
+    }
+  }
+
   return (
     <section className="stack-page">
       <div className="panel-head">
         <div>
-          <div className="eyebrow">Справка</div>
-          <h1>Документация</h1>
+          <div className="eyebrow">Связка Avito ↔ WebApp</div>
+          <h1>Инструкции</h1>
         </div>
       </div>
+
       <div className="doc-card">
+        <h3>Как ИИ публикует объявления</h3>
+        <p className="muted">
+          После «Утвердить» креатив попадает в XML-фид проекта. Авито забирает фид по URL (кабинет
+          Автозагрузки) или WebApp дергает Autoload API (если заданы Client ID/Secret). Без фида или
+          без ключей «сама публикация на Авито» не сработает.
+        </p>
+      </div>
+
+      <div className="doc-card">
+        <h3>1. Настройте WebApp (этот проект)</h3>
         <ol>
-          <li>Создайте проект — в чате придёт «Давайте выполним настройку».</li>
-          <li>Опишите нишу; поля появятся в Настройках.</li>
-          <li>Соберите креатив → Утвердите → фид XML для Автозагрузки.</li>
-          <li>Метрики: выберите публикацию → «Обновить».</li>
+          <li>
+            Откройте <strong>Настройки → Avito / Фид</strong> для выбранного проекта.
+          </li>
+          <li>
+            Заполните поля объявления (они уходят в XML):
+            <ul>
+              <li>
+                <strong>Категория</strong> — ваша рубрика Авито → в фид как <code>Category</code>
+              </li>
+              <li>
+                <strong>Адрес</strong> — город/адрес → <code>Address</code>
+              </li>
+              <li>
+                <strong>Телефон</strong> — контакт → <code>ContactPhone</code>
+              </li>
+            </ul>
+          </li>
+          <li>
+            Для <strong>автопубликации через API</strong> (кнопка утвердить / «Обновить фид») добавьте:
+            <ul>
+              <li>
+                <strong>Client ID</strong> и <strong>Client Secret</strong> — из кабинета Авито:
+                «Для профессионалов» → API или{" "}
+                <a href="https://developers.avito.ru/" target="_blank" rel="noreferrer">
+                  developers.avito.ru
+                </a>{" "}
+                → приложение. Вставляются только в Настройки этого проекта.
+              </li>
+              <li>
+                <strong>User ID</strong> — числовой ID аккаунта Авито (нужен для раздела Метрики).
+              </li>
+            </ul>
+          </li>
+          <li>
+            Нажмите <strong>Сохранить Avito</strong>. После заполнения блок свернётся; URL фида
+            копируется кнопкой под ним.
+          </li>
+        </ol>
+        <div className="avito-copy-row">
+          <button type="button" className="btn-copy-sm" disabled={!feedUrl} onClick={copyFeed}>
+            Скопировать URL фида
+          </button>
+          {copied && <span className="muted">{copied}</span>}
+        </div>
+        {feedUrl ? (
+          <p className="mono muted" style={{ wordBreak: "break-all", margin: 0 }}>
+            {feedUrl}
+          </p>
+        ) : (
+          <p className="muted">Выберите проект и сохраните Avito / Фид — URL появится здесь.</p>
+        )}
+      </div>
+
+      <div className="doc-card">
+        <h3>2. Куда вставить URL на Авито</h3>
+        <ol>
+          <li>
+            Скопируйте URL кнопкой выше (формат:{" "}
+            <code>/api/projects/&#123;id&#125;/avito-feed.xml?token=…</code>).
+          </li>
+          <li>
+            Token берётся из проекта автоматически (<code>avito_feed_token</code>), база — публичный
+            HTTPS адрес приложения (<code>PUBLIC_BASE_URL</code> / текущий домен).
+          </li>
+          <li>
+            В кабинете Авито откройте <strong>Автозагрузку</strong> → добавьте/укажите фид → вставьте
+            этот URL как адрес файла объявлений.
+          </li>
+          <li>
+            Проверьте XML:{" "}
+            <a href="https://autoload.avito.ru/format/xmlcheck/" target="_blank" rel="noreferrer">
+              валидатор Автозагрузки
+            </a>
+            .
+          </li>
+          <li>
+            Если Client ID/Secret заданы — при утверждении WebApp сам может дернуть upload API; URL
+            в кабинете всё равно полезен как запасной канал.
+          </li>
+        </ol>
+      </div>
+
+      <div className="doc-card">
+        <h3>3. Таблица: откуда → куда</h3>
+        <div className="instr-table">
+          <div>
+            <strong>Значение</strong>
+            <span className="muted">Откуда берётся</span>
+            <span className="muted">Куда вставляется</span>
+          </div>
+          <div>
+            <strong>Категория / Адрес / Телефон</strong>
+            <span>Вы вручную в Настройках</span>
+            <span>XML-фид (Category, Address, ContactPhone)</span>
+          </div>
+          <div>
+            <strong>Заголовок, описание, фото, цена</strong>
+            <span>Чат → креатив ИИ → Утвердить</span>
+            <span>XML (Title, Description, Images, Price)</span>
+          </div>
+          <div>
+            <strong>Feed URL + token</strong>
+            <span>Генерируется проектом (кнопка «Скопировать URL»)</span>
+            <span>Кабинет Автозагрузки Авито → URL фида</span>
+          </div>
+          <div>
+            <strong>Client ID / Secret</strong>
+            <span>Авито API / developers.avito.ru</span>
+            <span>Настройки проекта → автопубликация upload</span>
+          </div>
+          <div>
+            <strong>User ID</strong>
+            <span>Профиль Авито / API</span>
+            <span>Настройки → Метрики по объявлениям</span>
+          </div>
+          <div>
+            <strong>avito_item_id</strong>
+            <span>После выгрузки — ID объявления на Авито</span>
+            <span>Метрики → поле item ID → «Обновить»</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="doc-card">
+        <h3>4. Рабочий цикл</h3>
+        <ol>
+          <li>Чат: задание → черновик → правки при необходимости.</li>
+          <li>
+            <strong>Утвердить</strong> → креатив в фиде; при ключах API — попытка подгрузки.
+          </li>
+          <li>
+            Раздел <strong>Публикации</strong> — статус и ручной «Обновить фид / запустить подгрузку».
+          </li>
+          <li>
+            <strong>Метрики</strong> — данные Авито только по кнопке «Обновить».
+          </li>
         </ol>
       </div>
     </section>

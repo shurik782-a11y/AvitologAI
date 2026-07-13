@@ -233,7 +233,65 @@ h1 {
   font-weight: 600;
 }
 .doc-card ol { margin: 0.4rem 0 0.8rem 1.1rem; }
+.doc-card ul { margin: 0.35rem 0 0.6rem 1.1rem; }
 .doc-card h3 { margin: 0.2rem 0; font-family: var(--display); }
+.doc-card a { color: var(--accent); }
+.doc-card code {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  background: var(--bg);
+  padding: 0.1rem 0.35rem;
+  border-radius: 6px;
+}
+
+.avito-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+.avito-fields { display: grid; gap: 0.75rem; }
+.avito-copy-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+.btn-copy-sm {
+  font-size: 0.8rem;
+  padding: 0.4rem 0.7rem;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.instr-table {
+  display: grid;
+  gap: 0.55rem;
+}
+.instr-table > div {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.instr-table > div:first-child {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border-bottom-color: var(--line-strong);
+}
+@media (min-width: 720px) {
+  .instr-table > div {
+    grid-template-columns: 1.1fr 1fr 1.2fr;
+    gap: 0.75rem;
+    align-items: start;
+  }
+}
 
 .chat-panel {
   height: calc(100dvh - 56px - 1.5rem);
