@@ -605,6 +605,27 @@ export default function App() {
   );
 }
 
+function ImageLightbox({ src, onClose }) {
+  useEffect(() => {
+    if (!src) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [src, onClose]);
+
+  if (!src) return null;
+  return (
+    <div className="lightbox" role="dialog" aria-modal="true" onClick={onClose}>
+      <button type="button" className="lightbox-close" onClick={onClose} aria-label="Закрыть">
+        ×
+      </button>
+      <img src={src} alt="" className="lightbox-img" onClick={(e) => e.stopPropagation()} />
+    </div>
+  );
+}
+
 function ChatPanel({
   project,
   messages,
@@ -619,6 +640,8 @@ function ChatPanel({
   bottomRef,
   onNeedProject,
 }) {
+  const [lightbox, setLightbox] = useState(null);
+
   if (!project) {
     return (
       <EmptyState
@@ -643,6 +666,9 @@ function ChatPanel({
         {messages.map((m) => {
           const isStatus = !!m.meta?.status;
           const wide = m.role === "assistant" && !isStatus;
+          const imgs = Array.isArray(m.attachments)
+            ? m.attachments.filter((a) => a?.url && !String(a.url).includes("…"))
+            : [];
           return (
             <div
               key={m.id}
@@ -650,6 +676,21 @@ function ChatPanel({
             >
               <div className="role">{m.role === "user" ? "Вы" : isStatus ? "Статус" : "Авитолог"}</div>
               <div className="body">{m.content}</div>
+              {!!imgs.length && (
+                <div className="thumbs">
+                  {imgs.map((img, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      className="thumb thumb-open"
+                      onClick={() => setLightbox(img.url)}
+                      title="Открыть фото"
+                    >
+                      <img src={img.url} alt="" />
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}
@@ -658,9 +699,17 @@ function ChatPanel({
             <div className="creative-title">{creative.title || "Креатив"}</div>
             <pre>{creative.description}</pre>
             {!!creative.images?.length && (
-              <div className="thumbs">
+              <div className="thumbs creative-thumbs">
                 {creative.images.map((img, i) => (
-                  <img key={i} src={img.url} alt="" />
+                  <button
+                    key={i}
+                    type="button"
+                    className="thumb thumb-open"
+                    onClick={() => setLightbox(img.url)}
+                    title="Открыть фото"
+                  >
+                    <img src={img.url} alt="" />
+                  </button>
                 ))}
               </div>
             )}
@@ -668,7 +717,7 @@ function ChatPanel({
               <button className="primary" disabled={creative.status === "approved" || busy} onClick={onApprove}>
                 {creative.status === "approved" ? "Утверждено" : "Утвердить"}
               </button>
-              <span className="muted">Правки — свободным текстом ниже</span>
+              <span className="muted">Правки — свободным текстом · клик по фото — увеличить</span>
             </div>
           </div>
         )}
@@ -715,6 +764,7 @@ function ChatPanel({
           </button>
         </div>
       </div>
+      <ImageLightbox src={lightbox} onClose={() => setLightbox(null)} />
     </section>
   );
 }

@@ -34,8 +34,8 @@ Single LLM pass. Reply JSON (no markdown fences preferred):
 
 Rules:
 
-- `title` default = `search_query` + `conversion_offer` (unless user asks otherwise).
-- `description` = join non-empty `sections` in order above; skip empty slots (no hallucination).
+- `title` = short `search_query` + `conversion_offer` (≈25–55 chars). No keyword stuffing, no «купить», no full lowercase soup, no dumping the whole brief into the title.
+- `description` = join non-empty `sections` as rich paragraphs (usp/product/objections/cta required when brief has data). Keywords only at the end.
 - `need_images`: false for text-only edits / «без картинки».
 - `image_briefs` length ≈ project `photo_count` (hard max 5). Hero first; prefer `edit_from=ref` when reference exists.
 - `propose_new_idea`: optional hint; do not auto-create a new listing.

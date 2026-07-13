@@ -109,6 +109,34 @@ def _wants_new_listing(user_text: str) -> bool:
     return any(m in t for m in markers)
 
 
+def _polish_title(parsed: dict[str, Any], project: Project) -> str:
+    title = str(parsed.get("title") or "").strip()
+    sq = str(parsed.get("search_query") or getattr(project, "search_query", "") or "").strip()
+    off = str(parsed.get("conversion_offer") or getattr(project, "conversion_offer", "") or "").strip()
+    bad = (
+        len(title) > 65
+        or title.count(" ") > 8
+        or "купить" in title.lower()
+        or (len(title) > 12 and title == title.lower())
+    )
+    if (not title or bad) and (sq or off):
+        title = f"{sq} {off}".strip()
+    if not title:
+        title = "Объявление"
+    title = title[0].upper() + title[1:]
+    if len(title) > 70:
+        title = title[:67].rstrip(" ,;-") + "…"
+    return title
+
+
+def _polish_description(description: str, sections: dict) -> str:
+    joined = join_sections(sections)
+    desc = (description or "").strip()
+    if joined and (not desc or len(desc) < 220 or len(joined) > len(desc) + 40):
+        return joined
+    return desc or joined
+
+
 def _text_only_edit(user_text: str, revise: bool) -> bool:
     if not revise:
         return False
@@ -326,12 +354,11 @@ async def run_orchestrator(
     parsed = _parse_json_payload(assistant_text)
 
     sections = parsed.get("sections") if isinstance(parsed.get("sections"), dict) else {}
-    description = str(parsed.get("description") or "").strip() or join_sections(sections)
-    title = str(parsed.get("title") or "").strip()
-    if not title:
-        sq = str(parsed.get("search_query") or project.search_query or "").strip()
-        off = str(parsed.get("conversion_offer") or project.conversion_offer or "").strip()
-        title = f"{sq} {off}".strip() or "Объявление"
+    description = _polish_description(
+        str(parsed.get("description") or "").strip(),
+        sections,
+    )
+    title = _polish_title(parsed, project)
 
     need_images = bool(parsed.get("need_images", True))
     if text_only:
