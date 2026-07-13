@@ -25,6 +25,7 @@ description: AvitologAI — Telegram WebApp for Avito creatives via OpenRouter, 
 - [references/orchestrator-json.md](references/orchestrator-json.md)
 - [references/onboarding.md](references/onboarding.md)
 - [references/test-run.md](references/test-run.md)
+- [references/competitors-apis.md](references/competitors-apis.md)
 - [references/autoload-xml.md](references/autoload-xml.md)
 - [references/avito-metrics.md](references/avito-metrics.md)
 

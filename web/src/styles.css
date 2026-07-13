@@ -463,7 +463,37 @@ h1 {
   width: 100%;
   max-width: 100%;
 }
-.creative-title { font-family: var(--display); font-weight: 700; font-size: 1.1rem; }
+.creative-title { font-family: var(--display); font-weight: 700; font-size: 1.1rem; flex: 1; }
+.creative-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-bottom: 0.35rem;
+}
+.btn-ghost-sm {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-ghost-sm:hover { color: var(--text); border-color: var(--accent); }
+.btn-show-card {
+  align-self: flex-start;
+  border: 1px dashed rgba(255, 106, 26, 0.45);
+  background: rgba(255, 106, 26, 0.06);
+  color: var(--accent);
+  border-radius: 10px;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  max-width: 100%;
+  text-align: left;
+}
+.btn-show-card:hover { background: rgba(255, 106, 26, 0.12); }
 .creative pre {
   margin: 0;
   white-space: pre-wrap;

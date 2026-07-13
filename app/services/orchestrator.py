@@ -147,27 +147,57 @@ def _wants_new_listing(user_text: str) -> bool:
     return any(m in t for m in markers)
 
 
+def _strip_title_spam(text: str) -> str:
+    """Remove CTA/delivery spam that must not appear in Avito titles."""
+    t = (text or "").strip()
+    if not t:
+        return ""
+    banned = (
+        r"купить\s+онлайн(?:\s+с\s+(?:быстрой\s+)?доставкой)?",
+        r"с\s+быстрой\s+доставкой",
+        r"онлайн\s+с\s+доставкой",
+        r"купить\s+онлайн",
+        r"с\s+доставкой",
+        r"быстрая\s+доставка",
+        r"закажите\s+сейчас",
+        r"недорого",
+    )
+    for pat in banned:
+        t = re.sub(pat, " ", t, flags=re.IGNORECASE)
+    t = re.sub(r"\s{2,}", " ", t).strip(" ,;-–—")
+    return t
+
+
 def _polish_title(parsed: dict[str, Any], project: Project) -> str:
-    title = _ru_field(str(parsed.get("title") or ""))
-    sq = _ru_field(
-        str(parsed.get("search_query") or getattr(project, "search_query", "") or "")
+    title = _strip_title_spam(_ru_field(str(parsed.get("title") or "")))
+    sq = _strip_title_spam(
+        _ru_field(str(parsed.get("search_query") or getattr(project, "search_query", "") or ""))
     )
-    off = _ru_field(
-        str(parsed.get("conversion_offer") or getattr(project, "conversion_offer", "") or "")
+    off = _strip_title_spam(
+        _ru_field(
+            str(parsed.get("conversion_offer") or getattr(project, "conversion_offer", "") or "")
+        )
     )
+    # Drop CTA-ish conversion offers entirely
+    off_l = off.lower()
+    if any(w in off_l for w in ("купить", "онлайн", "доставк", "заказ")):
+        off = ""
     bad = (
-        len(title) > 65
-        or title.count(" ") > 8
+        len(title) > 50
+        or title.count(" ") > 7
         or "купить" in title.lower()
+        or "онлайн" in title.lower()
+        or "доставк" in title.lower()
         or (len(title) > 12 and title == title.lower())
     )
     if (not title or bad) and (sq or off):
         title = f"{sq} {off}".strip()
+    title = _strip_title_spam(title)
     if not title:
-        title = "Объявление"
+        title = sq or "Объявление"
     title = title[0].upper() + title[1:]
-    if len(title) > 70:
-        title = title[:67].rstrip(" ,;-") + "…"
+    if len(title) > 50:
+        title = title[:50].rstrip(" ,;-–—")
     return title
 
 
@@ -506,12 +536,18 @@ async def run_orchestrator(
     if isinstance(parsed.get("price"), (str, int, float)):
         price = str(parsed.get("price"))
 
+    offer_clean = _strip_title_spam(
+        _ru_field(str(parsed.get("conversion_offer") or project.conversion_offer or ""))
+    )
+    if any(w in offer_clean.lower() for w in ("купить", "онлайн", "доставк", "заказ")):
+        offer_clean = ""
+
     meta = {
         "ad_idea": ad_idea,
-        "search_query": _ru_field(str(parsed.get("search_query") or project.search_query or "")),
-        "conversion_offer": _ru_field(
-            str(parsed.get("conversion_offer") or project.conversion_offer or "")
+        "search_query": _strip_title_spam(
+            _ru_field(str(parsed.get("search_query") or project.search_query or ""))
         ),
+        "conversion_offer": offer_clean,
         "sections": sections or {},
         "pains": parsed.get("pains") if isinstance(parsed.get("pains"), list) else [],
         "image_briefs": briefs,

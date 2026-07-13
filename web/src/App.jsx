@@ -102,7 +102,6 @@ export default function App() {
   const [metricList, setMetricList] = useState([]);
   const [metricId, setMetricId] = useState(null);
   const [snapshot, setSnapshot] = useState(null);
-  const bottomRef = useRef(null);
   const pickerRef = useRef(null);
 
   const project = useMemo(
@@ -152,10 +151,6 @@ export default function App() {
     api.getSettings().then(setDefaults).catch((e) => setError(e.message));
     refreshBilling();
   }, [access]);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, creative, section]);
 
   useEffect(() => {
     function onDoc(e) {
@@ -511,7 +506,6 @@ export default function App() {
               onSend={sendChat}
               onApprove={approve}
               busy={busy}
-              bottomRef={bottomRef}
               onNeedProject={() => setPickerOpen(true)}
             />
           )}
@@ -653,10 +647,48 @@ function ChatPanel({
   onSend,
   onApprove,
   busy,
-  bottomRef,
   onNeedProject,
 }) {
   const [lightbox, setLightbox] = useState(null);
+  const [cardHidden, setCardHidden] = useState(false);
+  const listRef = useRef(null);
+  const stickBottom = useRef(true);
+  const lastCreativeId = useRef(null);
+
+  // New creative → show card again
+  useEffect(() => {
+    if (creative?.id && creative.id !== lastCreativeId.current) {
+      lastCreativeId.current = creative.id;
+      setCardHidden(false);
+      stickBottom.current = true;
+    }
+  }, [creative?.id]);
+
+  useEffect(() => {
+    if (!stickBottom.current) return;
+    const el = listRef.current;
+    if (!el) return;
+    // Instant jump — smooth scrollIntoView fights user when status messages stream in
+    el.scrollTop = el.scrollHeight;
+  }, [messages, creative, cardHidden]);
+
+  function onMessagesScroll() {
+    const el = listRef.current;
+    if (!el) return;
+    const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickBottom.current = dist < 80;
+  }
+
+  function unpinIfScrollUp(e) {
+    // Immediately allow reading history while the model is thinking / streaming
+    const dy = e.deltaY ?? 0;
+    if (dy < 0) stickBottom.current = false;
+  }
+
+  function handleSend() {
+    stickBottom.current = true;
+    onSend();
+  }
 
   if (!project) {
     return (
@@ -677,7 +709,12 @@ function ChatPanel({
           <h1>{project.name}</h1>
         </div>
       </div>
-      <div className="messages">
+      <div
+        className="messages"
+        ref={listRef}
+        onScroll={onMessagesScroll}
+        onWheel={unpinIfScrollUp}
+      >
         {!messages.length && <div className="empty-inline">Опишите товар или прикрепите фото.</div>}
         {messages.map((m) => {
           const isStatus = !!m.meta?.status;
@@ -710,9 +747,19 @@ function ChatPanel({
             </div>
           );
         })}
-        {creative && (
+        {creative && !cardHidden && (
           <div className="creative">
-            <div className="creative-title">{creative.title || "Креатив"}</div>
+            <div className="creative-head">
+              <div className="creative-title">{creative.title || "Креатив"}</div>
+              <button
+                type="button"
+                className="btn-ghost-sm"
+                onClick={() => setCardHidden(true)}
+                title="Скрыть карточку"
+              >
+                Скрыть
+              </button>
+            </div>
             <pre>{creative.description}</pre>
             {!!creative.images?.length && (
               <div className="thumbs creative-thumbs">
@@ -737,7 +784,11 @@ function ChatPanel({
             </div>
           </div>
         )}
-        <div ref={bottomRef} />
+        {creative && cardHidden && (
+          <button type="button" className="btn-show-card" onClick={() => setCardHidden(false)}>
+            Показать черновик: {creative.title || "креатив"}
+          </button>
+        )}
       </div>
       <div className="composer">
         {!!photos.length && (
@@ -775,13 +826,13 @@ function ChatPanel({
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  if (!busy) onSend();
+                  if (!busy) handleSend();
                 }
               }}
               placeholder="Enter — отправить · Shift+Enter — абзац"
             />
           </div>
-          <button className="primary send" disabled={busy} onClick={onSend}>
+          <button className="primary send" disabled={busy} onClick={handleSend}>
             Отправить
           </button>
         </div>
