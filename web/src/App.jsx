@@ -51,11 +51,11 @@ async function copyText(text) {
 
 function PaperclipIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
         d="M21 12.5V8.2a5.2 5.2 0 0 0-10.4 0v9.1a3.4 3.4 0 1 0 6.8 0V9.1a1.6 1.6 0 1 0-3.2 0v7.5"
         stroke="currentColor"
-        strokeWidth="1.8"
+        strokeWidth="1.7"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
@@ -64,6 +64,8 @@ function PaperclipIcon() {
 }
 
 export default function App() {
+  const [access, setAccess] = useState("loading");
+  const [accessError, setAccessError] = useState("");
   const [projects, setProjects] = useState([]);
   const [projectId, setProjectId] = useState(null);
   const [section, setSection] = useState("chat");
@@ -93,6 +95,28 @@ export default function App() {
     [projects, projectId]
   );
 
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .authMe()
+      .then(() => {
+        if (!cancelled) setAccess("ok");
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        if (e.status === 401 || e.status === 403) {
+          setAccess("denied");
+          setAccessError(e.message || "Нет доступа");
+        } else {
+          // сеть / health: всё равно пробуем UI (ADMIN_IDS может быть пуст на API)
+          setAccess("ok");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   async function refreshProjects() {
     const list = await api.listProjects();
     setProjects(list);
@@ -108,10 +132,11 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (access !== "ok") return;
     refreshProjects().catch((e) => setError(e.message));
     api.getSettings().then(setDefaults).catch((e) => setError(e.message));
     refreshBilling();
-  }, []);
+  }, [access]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -308,6 +333,31 @@ export default function App() {
   }
 
   const pickerLabel = project ? project.name : "Выберите проект";
+
+  if (access === "loading") {
+    return (
+      <div className="shell">
+        <div className="empty-state">
+          <h2>AvitologAI</h2>
+          <p className="muted">Проверка доступа…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (access === "denied") {
+    return (
+      <div className="shell">
+        <EmptyState
+          title="Нет доступа"
+          text={
+            accessError ||
+            "Откройте приложение из Telegram-бота. Ваш ID должен быть в ADMIN_IDS на сервере."
+          }
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="shell">
@@ -523,8 +573,12 @@ function ChatPanel({
         {!messages.length && <div className="empty-inline">Опишите товар или прикрепите фото.</div>}
         {messages.map((m) => {
           const isStatus = !!m.meta?.status;
+          const wide = m.role === "assistant" && !isStatus;
           return (
-            <div key={m.id} className={`bubble ${m.role}${isStatus ? " status" : ""}`}>
+            <div
+              key={m.id}
+              className={`bubble ${m.role}${isStatus ? " status" : ""}${wide ? " wide" : ""}`}
+            >
               <div className="role">{m.role === "user" ? "Вы" : isStatus ? "Статус" : "Авитолог"}</div>
               <div className="body">{m.content}</div>
             </div>
@@ -562,29 +616,31 @@ function ChatPanel({
           </div>
         )}
         <div className="composer-row">
-          <label className="attach" title="Прикрепить фото">
-            <PaperclipIcon />
-            <input
-              hidden
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={async (e) => {
-                const urls = await Promise.all(
-                  Array.from(e.target.files || [])
-                    .slice(0, 4)
-                    .map(fileToDataUrl)
-                );
-                setPhotos((prev) => [...prev, ...urls].slice(0, 4));
-              }}
+          <div className="composer-field">
+            <label className="attach-inline" title="Прикрепить фото">
+              <PaperclipIcon />
+              <input
+                hidden
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={async (e) => {
+                  const urls = await Promise.all(
+                    Array.from(e.target.files || [])
+                      .slice(0, 4)
+                      .map(fileToDataUrl)
+                  );
+                  setPhotos((prev) => [...prev, ...urls].slice(0, 4));
+                }}
+              />
+            </label>
+            <textarea
+              rows={1}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Задание или правки…"
             />
-          </label>
-          <textarea
-            rows={1}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Задание или правки…"
-          />
+          </div>
           <button className="primary send" disabled={busy} onClick={onSend}>
             Отправить
           </button>

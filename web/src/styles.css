@@ -375,7 +375,7 @@ h1 {
   padding-right: 0.15rem;
 }
 .bubble {
-  max-width: 88%;
+  max-width: min(88%, 36rem);
   padding: 0.8rem 0.9rem;
   border-radius: 16px;
   border: 1px solid var(--line);
@@ -388,9 +388,16 @@ h1 {
   background: var(--accent-soft);
   border-color: rgba(255, 106, 26, 0.35);
 }
+.bubble.wide,
+.bubble.assistant.wide {
+  max-width: 100%;
+  width: 100%;
+  justify-self: stretch;
+}
 .bubble.status {
-  max-width: 72%;
-  padding: 0.45rem 0.75rem;
+  max-width: 100%;
+  width: 100%;
+  padding: 0.45rem 0.15rem;
   background: transparent;
   border-color: transparent;
   color: var(--muted);
@@ -404,6 +411,8 @@ h1 {
   animation: section-in 320ms var(--ease);
   border-color: rgba(255, 106, 26, 0.28);
   box-shadow: 0 0 28px rgba(255, 106, 26, 0.08);
+  width: 100%;
+  max-width: 100%;
 }
 .creative-title { font-family: var(--display); font-weight: 700; font-size: 1.1rem; }
 .creative pre {
@@ -440,33 +449,56 @@ h1 {
 }
 .composer-row {
   display: grid;
-  grid-template-columns: 48px 1fr auto;
+  grid-template-columns: 1fr auto;
   gap: 0.45rem;
   align-items: center;
 }
-.attach {
-  width: 48px;
+.composer-field {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 0;
   height: 48px;
-  display: grid;
-  place-items: center;
   border: 1px solid var(--line-strong);
   border-radius: 12px;
-  background: var(--panel);
-  cursor: pointer;
-  color: var(--ink);
+  background: #0f131b;
+  padding: 0 0.35rem 0 0.2rem;
   transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
-.attach:hover {
-  border-color: rgba(255, 106, 26, 0.5);
-  box-shadow: 0 0 16px rgba(255, 106, 26, 0.15);
+.composer-field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft), 0 0 18px rgba(255, 106, 26, 0.12);
 }
-.composer-row textarea {
-  height: 48px;
-  min-height: 48px;
-  max-height: 48px;
+.attach-inline {
+  flex: 0 0 40px;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--muted);
+  border-radius: 10px;
+  transition: color var(--dur) var(--ease);
+}
+.attach-inline:hover { color: var(--accent); box-shadow: none; }
+.composer-field textarea {
+  flex: 1;
+  min-width: 0;
+  height: 44px;
+  min-height: 44px;
+  max-height: 44px;
   resize: none;
-  padding: 0.7rem 0.85rem;
+  border: 0;
+  background: transparent;
+  padding: 0.65rem 0.55rem 0.65rem 0.15rem;
   line-height: 1.25;
+  box-shadow: none;
+}
+.composer-field textarea:focus {
+  border: 0;
+  box-shadow: none;
 }
 .send {
   height: 48px;

@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_webhook_secret: str = ""
     public_base_url: str = ""
+    # Comma-separated Telegram user IDs allowed into the WebApp/API
+    admin_ids: str = ""
     default_orchestrator_instruction: str = (
         "Ты — AvitologAI, оркестратор креативов для объявлений Авито. "
         "Работай кратко и по делу на русском. "

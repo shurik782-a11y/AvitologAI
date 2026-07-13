@@ -1,8 +1,21 @@
 const API = "";
 
+function telegramInitData() {
+  try {
+    return window.Telegram?.WebApp?.initData || "";
+  } catch {
+    return "";
+  }
+}
+
 async function request(path, options = {}) {
+  const initData = telegramInitData();
   const res = await fetch(`${API}${path}`, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(initData ? { "X-Telegram-Init-Data": initData } : {}),
+      ...(options.headers || {}),
+    },
     ...options,
   });
   const text = await res.text();
@@ -14,12 +27,15 @@ async function request(path, options = {}) {
   }
   if (!res.ok) {
     const detail = data?.detail;
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail || res.status));
+    const err = new Error(typeof detail === "string" ? detail : JSON.stringify(detail || res.status));
+    err.status = res.status;
+    throw err;
   }
   return data;
 }
 
 export const api = {
+  authMe: () => request("/api/auth/me"),
   listProjects: () => request("/api/projects"),
   createProject: (body) => request("/api/projects", { method: "POST", body: JSON.stringify(body) }),
   updateProject: (id, body) =>

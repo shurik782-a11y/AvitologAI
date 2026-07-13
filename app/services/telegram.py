@@ -101,6 +101,16 @@ async def send_start(chat_id: int) -> None:
     )
 
 
+async def send_denied(chat_id: int) -> None:
+    await tg_call(
+        "sendMessage",
+        {
+            "chat_id": chat_id,
+            "text": "Доступ к AvitologAI ограничен. Ваш Telegram ID не в списке администраторов.",
+        },
+    )
+
+
 async def handle_update(update: dict[str, Any]) -> None:
     message = update.get("message") or update.get("edited_message")
     if not message:
@@ -109,6 +119,15 @@ async def handle_update(update: dict[str, Any]) -> None:
     chat_id = chat.get("id")
     if chat_id is None:
         return
+    from_user = message.get("from") or {}
+    uid = from_user.get("id")
+    from app.services.auth import admin_ids
+
+    ids = admin_ids()
+    if ids and (uid is None or int(uid) not in ids):
+        await send_denied(int(chat_id))
+        return
+
     text = (message.get("text") or "").strip()
     if text.startswith("/start") or text in {"/app", "app", "меню", "Меню"}:
         await send_start(int(chat_id))

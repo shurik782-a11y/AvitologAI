@@ -20,7 +20,13 @@ Telegram Mini App + FastAPI for Avito creatives via OpenRouter. Repo: `https://g
 
 ## Env (Railway)
 
-`PUBLIC_BASE_URL`, `TELEGRAM_BOT_TOKEN`, `OPENROUTER_API_KEY`, `ORCHESTRATOR_MODEL`, `VISION_MODEL`, `IMAGE_MODEL`, `DATABASE_URL`
+`PUBLIC_BASE_URL`, `TELEGRAM_BOT_TOKEN`, `OPENROUTER_API_KEY`, `ORCHESTRATOR_MODEL`, `VISION_MODEL`, `IMAGE_MODEL`, `DATABASE_URL`, **`ADMIN_IDS`** (comma-separated Telegram user IDs — required in production; empty = open API for local/smoke only).
+
+## Access control
+
+- API (except health / telegram webhook / token-gated feed) requires valid Telegram WebApp `initData` and `user.id ∈ ADMIN_IDS`.
+- Bot `/start` denied for non-admins when `ADMIN_IDS` is set.
+- Feed XML stays public with `?token=` (Avito Autoload).
 
 ## Skill
 
