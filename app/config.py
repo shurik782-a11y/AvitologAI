@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     vision_model: str = "openrouter/free"
     image_model: str = "black-forest-labs/flux.2-flex"
     telegram_bot_token: str = ""
+    telegram_webhook_secret: str = ""
     public_base_url: str = ""
     default_orchestrator_instruction: str = (
         "Ты — AvitologAI, оркестратор креативов для объявлений Авито. "

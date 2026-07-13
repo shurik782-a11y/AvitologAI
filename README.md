@@ -43,10 +43,19 @@ npm run dev
    - откройте сервис приложения → **Variables** → **Add variable Reference**
    - выберите Postgres → `DATABASE_URL` (Railway подставит сам)
 4. Остальные переменные:
+   - `TELEGRAM_BOT_TOKEN` — токен из BotFather (`/token`)
+   - `PUBLIC_BASE_URL=https://avitologai-production.up.railway.app` — без слэша в конце
    - `OPENROUTER_API_KEY` (можно и в UI)
-   - `PUBLIC_BASE_URL` = публичный URL сервиса
    - опционально `ORCHESTRATOR_MODEL`, `VISION_MODEL`, `IMAGE_MODEL`
 5. Volume на `/data` нужен только для загруженных фото (`/uploads`). Сама БД — в Postgres.
+
+После деплоя приложение само:
+- ставит webhook на `{PUBLIC_BASE_URL}/api/telegram/webhook`
+- ставит Menu Button «AvitologAI»
+- на `/start` отвечает и показывает кнопку **Открыть AvitologAI** (WebApp)
+
+Проверка: откройте `/api/telegram/status` и `/api/health`.
+
 
 ### Какой `DATABASE_URL`?
 
