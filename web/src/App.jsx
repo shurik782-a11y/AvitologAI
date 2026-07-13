@@ -243,8 +243,24 @@ export default function App() {
 
   async function sendChat() {
     if (!projectId || (!draft.trim() && photos.length === 0)) return;
+    const content = draft.trim();
+    const images = [...photos];
+    // Clear immediately — message is on its way / will show in chat
+    setDraft("");
+    setPhotos([]);
     setBusy(true);
     setError("");
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `local-${Date.now()}`,
+        role: "user",
+        content,
+        attachments: images.map((url) => ({ type: "image", url })),
+        meta: { local: true },
+        created_at: new Date().toISOString(),
+      },
+    ]);
     const poll = setInterval(async () => {
       try {
         setMessages(await api.getMessages(projectId));
@@ -254,17 +270,17 @@ export default function App() {
     }, 700);
     try {
       const res = await api.chat(projectId, {
-        content: draft.trim(),
-        images: photos,
+        content,
+        images,
         revise_of_creative_id: creative?.id || null,
       });
       setMessages(await api.getMessages(projectId));
       setCreative(res.creative);
-      setDraft("");
-      setPhotos([]);
       if (res.onboarding_done) await refreshProjects();
     } catch (e) {
       setError(e.message);
+      setDraft(content);
+      setPhotos(images);
       try {
         setMessages(await api.getMessages(projectId));
       } catch {
@@ -756,7 +772,13 @@ function ChatPanel({
               rows={1}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="Задание или правки…"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (!busy) onSend();
+                }
+              }}
+              placeholder="Enter — отправить · Shift+Enter — абзац"
             />
           </div>
           <button className="primary send" disabled={busy} onClick={onSend}>
