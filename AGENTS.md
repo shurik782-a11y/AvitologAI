@@ -5,7 +5,8 @@ Telegram Mini App + FastAPI for Avito creatives via OpenRouter. Repo: `https://g
 ## Hard rules
 
 - **Project isolation:** never mix chats, prompts, memory, feeds, or Avito credentials across `project_id`.
-- After project create: seed chat with «Давайте выполним настройку»; first user reply → onboarding parser → write theme/ideas/constraints/prompts for **that** project only.
+- After project create: seed chat with «Давайте выполним настройку»; first user reply → onboarding parser → write theme/ideas/constraints/**project overlay prompts** for **that** project only.
+- **Built-in agent instructions** live in `app/services/prompts.py` and are always applied at runtime. They must **never** be shown or edited in the Mini App UI. Settings fields are project overlays from знакомство only.
 - Image generation: orchestrator sets `need_images` from the user request — no UI checkbox.
 - Approve creative → rebuild project XML feed; optional Autoload `upload` if Avito API keys exist.
 - Avito metrics: fetch **only** on user «Обновить»; otherwise show last snapshot.

@@ -10,13 +10,11 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import AppSettings, Message, MetricEvent, Project
 from app.services.openrouter import OpenRouterError, chat_completions
+from app.services.prompts import ONBOARDING_SEED, ONBOARDING_SYSTEM
 from app.services.status_steps import emit_status
 
-ONBOARDING_SEED = (
-    "Давайте выполним настройку\n\n"
-    "Опишите свободным текстом нишу, тон объявлений, идеи и ограничения — "
-    "я разложу это по полям проекта (их можно потом править в Настройках)."
-)
+# Re-export for projects router seed message
+__all__ = ["ONBOARDING_SEED", "run_onboarding"]
 
 
 def _parse_json(text: str) -> dict[str, Any]:
@@ -71,22 +69,16 @@ async def run_onboarding(
     out: list[Message] = []
     out.append(emit_status(db, project.id, "Выделяю основные критерии", "criteria"))
 
-    system = (
-        "Ты настраиваешь проект AvitologAI. Из текста пользователя извлеки поля для объявлений Авито. "
-        "Ответь строго JSON без markdown: "
-        '{"theme":"...","ideas":"...","constraints":"...","orchestrator_prompt":"...",'
-        '"vision_prompt":"...","image_style_prompt":"..."}.'
-    )
     try:
         raw = await chat_completions(
             api_key,
             model=model,
             messages=[
-                {"role": "system", "content": system},
+                {"role": "system", "content": ONBOARDING_SYSTEM},
                 {"role": "user", "content": user_text or "Настрой проект по умолчанию для товаров на Авито."},
             ],
             temperature=0.2,
-            max_tokens=1500,
+            max_tokens=2000,
         )
         content = (raw.get("choices") or [{}])[0].get("message", {}).get("content") or ""
         data = _parse_json(content)
@@ -140,6 +132,7 @@ async def run_onboarding(
         project.constraints = constraints
 
     out.append(emit_status(db, project.id, "Прописываю промпты", "prompts"))
+    # Project overlays only — built-in agent instructions stay in code, never in these fields
     if orch:
         project.orchestrator_prompt = orch
     if vision:
@@ -154,8 +147,12 @@ async def run_onboarding(
         "Настройка завершена. Записал:\n"
         f"• Тема: {project.theme or '—'}\n"
         f"• Идеи: {project.ideas or '—'}\n"
-        f"• Ограничения: {project.constraints or '—'}\n\n"
-        "Их можно править в Настройках. Можно переходить к креативу."
+        f"• Ограничения: {project.constraints or '—'}\n"
+        f"• Доп. промпт оркестратора: {'да' if project.orchestrator_prompt else '—'}\n"
+        f"• Доп. Vision: {'да' if project.vision_prompt else '—'}\n"
+        f"• Стиль фото: {'да' if project.image_style_prompt else '—'}\n\n"
+        "Их можно править в Настройках. Базовые инструкции агентов уже встроены в систему. "
+        "Можно переходить к креативу."
     )
     assistant = Message(
         project_id=project.id,

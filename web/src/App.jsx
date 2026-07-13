@@ -936,7 +936,11 @@ function ModelSettings({ kind, project, defaults, onBack, onSave, busy }) {
       modelKey: "orchestrator_model",
       fallback: defaults?.default_orchestrator_model,
       fields: [
-        { key: "orchestrator_prompt", label: "Системный промпт", rows: 6 },
+        {
+          key: "orchestrator_prompt",
+          label: "Доп. промпт проекта (из знакомства)",
+          rows: 6,
+        },
         { key: "theme", label: "Тематика", rows: 2 },
         { key: "ideas", label: "Идеи", rows: 3 },
         { key: "constraints", label: "Ограничения", rows: 3 },
@@ -946,13 +950,25 @@ function ModelSettings({ kind, project, defaults, onBack, onSave, busy }) {
       title: "Генерация изображений",
       modelKey: "image_model",
       fallback: defaults?.default_image_model,
-      fields: [{ key: "image_style_prompt", label: "Стиль / промпт для фото", rows: 5 }],
+      fields: [
+        {
+          key: "image_style_prompt",
+          label: "Стиль фото проекта (из знакомства)",
+          rows: 5,
+        },
+      ],
     },
     vision: {
       title: "Vision",
       modelKey: "vision_model",
       fallback: defaults?.default_vision_model,
-      fields: [{ key: "vision_prompt", label: "Инструкция для разбора фото", rows: 5 }],
+      fields: [
+        {
+          key: "vision_prompt",
+          label: "Доп. инструкция Vision (из знакомства)",
+          rows: 5,
+        },
+      ],
     },
   }[kind];
 
@@ -1246,16 +1262,17 @@ function InstructionsPanel({ project }) {
             <h3>Настройка проекта</h3>
             <ol>
               <li>
-                <strong>Онбординг в чате</strong> — опишите нишу; поля темы/идей/ограничений и промпты
-                заполнятся сами (их можно править в Настройках).
+                <strong>Онбординг в чате</strong> — опишите нишу; тема/идеи/ограничения и доп. промпты
+                проекта заполнятся сами (правки в Настройках). Базовые инструкции агентов встроены в
+                систему и в приложении не показываются.
               </li>
               <li>
-                <strong>Оркестратор</strong> — модель OpenRouter + системный промпт, тема, идеи,
+                <strong>Оркестратор</strong> — модель OpenRouter + доп. промпт проекта, тема, идеи,
                 ограничения.
               </li>
               <li>
-                При необходимости отдельно: <strong>Генерация изображений</strong> (стиль) и{" "}
-                <strong>Vision</strong> (разбор фото).
+                При необходимости отдельно: <strong>Генерация изображений</strong> (стиль проекта) и{" "}
+                <strong>Vision</strong> (доп. разбор фото).
               </li>
               <li>
                 <strong>Avito / Фид</strong> — категория, адрес, телефон для XML. Client ID/Secret

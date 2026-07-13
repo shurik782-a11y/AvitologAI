@@ -20,6 +20,12 @@ from app.services.openrouter import (
     chat_completions,
     generate_image,
 )
+from app.services.prompts import (
+    build_image_generation_prompt,
+    compose_image_style,
+    compose_orchestrator_system,
+    compose_vision_system,
+)
 from app.services.status_steps import emit_status, is_status_message
 
 
@@ -176,11 +182,7 @@ async def run_orchestrator(
         project.orchestrator_model or cfg.orchestrator_model or settings.orchestrator_model
     ).strip()
     image_model = (project.image_model or cfg.image_model or settings.image_model).strip()
-    vision_system = (
-        project.vision_prompt
-        or "Опиши товар на фото для объявления Авито: категория, состояние, "
-        "цвет, ключевые признаки, дефекты. Кратко, по пунктам, на русском."
-    )
+    vision_system = compose_vision_system(project_prompt=project.vision_prompt or "")
     if vision_images:
         try:
             vision_payload = await chat_completions(
@@ -217,10 +219,10 @@ async def run_orchestrator(
     status_msgs.append(emit_status(db, project.id, "Даю задание на генерацию", "assign"))
     status_msgs.append(emit_status(db, project.id, "Делегирую создание текста", "text"))
 
-    instruction = (
-        project.orchestrator_prompt
-        or cfg.orchestrator_instruction
-        or settings.default_orchestrator_instruction
+    # Built-in instructions are always applied (hidden from UI); project fields are overlays
+    instruction = compose_orchestrator_system(
+        project_prompt=project.orchestrator_prompt or "",
+        global_instruction=cfg.orchestrator_instruction or "",
     )
     system = (
         f"{instruction}\n\n{project_block}\n\n{mem_block}\n\n"
@@ -254,16 +256,20 @@ async def run_orchestrator(
 
     image_paths: list[str] = []
     need_images = bool(parsed.get("need_images", True))
-    image_prompt = str(parsed.get("image_prompt") or "").strip()
-    style = (project.image_style_prompt or "").strip()
-    if style and image_prompt:
-        image_prompt = f"{image_prompt}\n\nStyle: {style}"
-    if need_images and image_prompt:
+    scene_brief = str(parsed.get("image_prompt") or "").strip()
+    generation_prompt = ""
+    if need_images and scene_brief:
+        generation_prompt = build_image_generation_prompt(
+            scene_brief=scene_brief,
+            style_rules=compose_image_style(project_style=project.image_style_prompt or ""),
+            vision_facts=vision_notes,
+        )
+    if need_images and generation_prompt:
         status_msgs.append(
             emit_status(db, project.id, "Делегирую создание изображения", "image")
         )
         try:
-            blobs = await generate_image(api_key, model=image_model, prompt=image_prompt, n=1)
+            blobs = await generate_image(api_key, model=image_model, prompt=generation_prompt, n=1)
             for blob in blobs:
                 image_paths.append(_save_image_bytes(blob))
             db.add(MetricEvent(project_id=project.id, name="image.ok", value=float(len(image_paths))))
@@ -288,7 +294,8 @@ async def run_orchestrator(
         project_id=project.id,
         title=str(parsed.get("title") or "")[:300],
         description=str(parsed.get("description") or ""),
-        image_prompt=image_prompt,
+        # Store scene brief only — built-in image guardrails must not appear in UI
+        image_prompt=scene_brief,
         analysis=str(parsed.get("analysis") or vision_notes),
         images=[{"url": p} for p in image_paths],
         status="draft",

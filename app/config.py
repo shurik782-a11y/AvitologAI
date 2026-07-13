@@ -23,16 +23,9 @@ class Settings(BaseSettings):
     public_base_url: str = ""
     # Comma-separated Telegram user IDs allowed into the WebApp/API
     admin_ids: str = ""
-    default_orchestrator_instruction: str = (
-        "Ты — AvitologAI, оркестратор креативов для объявлений Авито. "
-        "Работай кратко и по делу на русском. "
-        "На каждое задание: 1) учти настройки проекта (тема, идеи, ограничения); "
-        "2) учти память проекта (частые правки и паттерны); "
-        "3) если есть фото — опиши товар и используй в тексте; "
-        "4) сформируй заголовок, описание под Авито и промпт для генерации фото; "
-        "5) ответь строго JSON без markdown: "
-        '{"title":"...","description":"...","image_prompt":"...","analysis":"...","need_images":true}.'
-    )
+    # Built-in agent instructions live in app.services.prompts (never shown in UI).
+    # Kept for backward-compatible seeding of AppSettings; runtime ignores legacy defaults.
+    default_orchestrator_instruction: str = ""
 
     @property
     def db_url(self) -> str:
