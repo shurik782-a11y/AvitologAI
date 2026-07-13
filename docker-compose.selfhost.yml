@@ -1,0 +1,28 @@
+services:
+  avitolog:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /data
+      PORT: "8000"
+    volumes:
+      - avitolog_data:/data
+    restart: unless-stopped
+
+  # Раскомментируйте блок ниже, если нужен Postgres вместо SQLite:
+  # db:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_USER: avitolog
+  #     POSTGRES_PASSWORD: change_me
+  #     POSTGRES_DB: avitolog
+  #   volumes:
+  #     - avitolog_pg:/var/lib/postgresql/data
+  #   restart: unless-stopped
+
+volumes:
+  avitolog_data:
+  # avitolog_pg:

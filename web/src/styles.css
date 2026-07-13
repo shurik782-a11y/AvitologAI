@@ -267,11 +267,17 @@ input:focus, textarea:focus {
   margin-bottom: 0.2rem;
 }
 h1 {
-  font-family: var(--display);
+  font-family: var(--font);
   font-size: 1.55rem;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.02em;
   margin: 0;
   font-weight: 750;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+.picker-label,
+.picker-item {
+  font-family: var(--font);
+  font-variant-numeric: lining-nums tabular-nums;
 }
 .lede { color: var(--muted); max-width: 42rem; margin: 0 0 1rem; }
 .stack-page { display: grid; gap: 0.85rem; align-content: start; }
@@ -409,28 +415,32 @@ h1 {
 .messages {
   overflow: auto;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.55rem;
   align-content: start;
   padding-right: 0.15rem;
+  width: 100%;
 }
 .bubble {
-  max-width: min(88%, 36rem);
+  max-width: min(88%, 28rem);
   padding: 0.8rem 0.9rem;
   border-radius: 16px;
   border: 1px solid var(--line);
   background: var(--panel);
   white-space: pre-wrap;
   animation: bubble-in 240ms var(--ease);
+  box-sizing: border-box;
+  min-width: 0;
 }
 .bubble.user {
   justify-self: end;
   background: var(--accent-soft);
   border-color: rgba(255, 106, 26, 0.35);
 }
-.bubble.wide,
-.bubble.assistant.wide {
-  max-width: 100%;
+.bubble.assistant,
+.bubble.wide {
   width: 100%;
+  max-width: 100%;
   justify-self: stretch;
 }
 .bubble.status {
