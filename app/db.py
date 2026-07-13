@@ -49,6 +49,13 @@ class Project(Base):
     theme: Mapped[str] = mapped_column(Text, default="")
     ideas: Mapped[str] = mapped_column(Text, default="")
     constraints: Mapped[str] = mapped_column(Text, default="")
+    # Per-project model overrides (empty = inherit env / app defaults)
+    orchestrator_model: Mapped[str] = mapped_column(String(200), default="")
+    vision_model: Mapped[str] = mapped_column(String(200), default="")
+    image_model: Mapped[str] = mapped_column(String(200), default="")
+    orchestrator_prompt: Mapped[str] = mapped_column(Text, default="")
+    vision_prompt: Mapped[str] = mapped_column(Text, default="")
+    image_style_prompt: Mapped[str] = mapped_column(Text, default="")
     extra: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
@@ -132,6 +139,7 @@ def _sqlite_fk(dbapi_conn, _connection_record) -> None:  # type: ignore[no-untyp
 def init_db() -> None:
     Path(settings.data_dir).mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
+    _ensure_project_columns()
     with SessionLocal() as db:
         row = db.get(AppSettings, 1)
         if row is None:
@@ -146,6 +154,32 @@ def init_db() -> None:
                 )
             )
             db.commit()
+
+
+def _ensure_project_columns() -> None:
+    """Add new project columns on existing DBs (create_all does not alter)."""
+    cols = {
+        "orchestrator_model": "VARCHAR(200) DEFAULT ''",
+        "vision_model": "VARCHAR(200) DEFAULT ''",
+        "image_model": "VARCHAR(200) DEFAULT ''",
+        "orchestrator_prompt": "TEXT DEFAULT ''",
+        "vision_prompt": "TEXT DEFAULT ''",
+        "image_style_prompt": "TEXT DEFAULT ''",
+    }
+    with engine.begin() as conn:
+        existing: set[str] = set()
+        if settings.db_url.startswith("sqlite"):
+            rows = conn.exec_driver_sql("PRAGMA table_info(projects)").fetchall()
+            existing = {r[1] for r in rows}
+        else:
+            rows = conn.exec_driver_sql(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'projects'"
+            ).fetchall()
+            existing = {str(r[0]) for r in rows}
+        for name, ddl in cols.items():
+            if name not in existing:
+                conn.exec_driver_sql(f"ALTER TABLE projects ADD COLUMN {name} {ddl}")
 
 
 def get_db() -> Generator:

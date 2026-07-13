@@ -12,6 +12,12 @@ class ProjectCreate(BaseModel):
     theme: str = ""
     ideas: str = ""
     constraints: str = ""
+    orchestrator_model: str = ""
+    vision_model: str = ""
+    image_model: str = ""
+    orchestrator_prompt: str = ""
+    vision_prompt: str = ""
+    image_style_prompt: str = ""
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -20,6 +26,12 @@ class ProjectUpdate(BaseModel):
     theme: str | None = None
     ideas: str | None = None
     constraints: str | None = None
+    orchestrator_model: str | None = None
+    vision_model: str | None = None
+    image_model: str | None = None
+    orchestrator_prompt: str | None = None
+    vision_prompt: str | None = None
+    image_style_prompt: str | None = None
     extra: dict[str, Any] | None = None
 
 
@@ -29,6 +41,12 @@ class ProjectOut(BaseModel):
     theme: str
     ideas: str
     constraints: str
+    orchestrator_model: str = ""
+    vision_model: str = ""
+    image_model: str = ""
+    orchestrator_prompt: str = ""
+    vision_prompt: str = ""
+    image_style_prompt: str = ""
     extra: dict[str, Any]
     created_at: datetime
     updated_at: datetime
@@ -43,6 +61,10 @@ class AppSettingsOut(BaseModel):
     vision_model: str
     image_model: str
     orchestrator_instruction: str
+    # Env / Variables defaults (shown in UI as fallbacks)
+    default_orchestrator_model: str = ""
+    default_vision_model: str = ""
+    default_image_model: str = ""
 
 
 class AppSettingsUpdate(BaseModel):

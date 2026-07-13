@@ -1,21 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, fileToDataUrl } from "./api.js";
 
+const NAV = [
+  { id: "settings", label: "Настройки" },
+  { id: "publications", label: "Публикации" },
+  { id: "docs", label: "Документация" },
+];
+
 export default function App() {
-  const [view, setView] = useState("projects");
   const [projects, setProjects] = useState([]);
   const [projectId, setProjectId] = useState(null);
+  const [section, setSection] = useState("chat");
+  const [settingsSub, setSettingsSub] = useState(null); // orch | image | vision | null
+  const [defaults, setDefaults] = useState(null);
   const [messages, setMessages] = useState([]);
   const [creative, setCreative] = useState(null);
-  const [memories, setMemories] = useState([]);
-  const [settings, setSettings] = useState(null);
-  const [metrics, setMetrics] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState("");
   const [photos, setPhotos] = useState([]);
   const [genImages, setGenImages] = useState(true);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [newOpen, setNewOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
+  const [newName, setNewName] = useState("");
   const bottomRef = useRef(null);
+  const pickerRef = useRef(null);
 
   const project = useMemo(
     () => projects.find((p) => p.id === projectId) || null,
@@ -30,22 +40,35 @@ export default function App() {
 
   useEffect(() => {
     refreshProjects().catch((e) => setError(e.message));
-    api.getSettings().then(setSettings).catch((e) => setError(e.message));
+    api
+      .getSettings()
+      .then(setDefaults)
+      .catch((e) => setError(e.message));
   }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, creative, view]);
+  }, [messages, creative, section]);
 
-  async function openProject(id) {
+  useEffect(() => {
+    function onDoc(e) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target)) setPickerOpen(false);
+    }
+    document.addEventListener("pointerdown", onDoc);
+    return () => document.removeEventListener("pointerdown", onDoc);
+  }, []);
+
+  async function selectProject(id) {
     setProjectId(id);
-    setView("chat");
+    setPickerOpen(false);
+    setNavOpen(false);
+    setSection("chat");
+    setSettingsSub(null);
     setError("");
     setBusy(true);
     try {
-      const [msgs, mems] = await Promise.all([api.getMessages(id), api.getMemories(id)]);
+      const msgs = await api.getMessages(id);
       setMessages(msgs);
-      setMemories(mems);
       setCreative(null);
     } catch (e) {
       setError(e.message);
@@ -54,13 +77,15 @@ export default function App() {
     }
   }
 
-  async function createProject(form) {
+  async function createProject() {
+    if (!newName.trim()) return;
     setBusy(true);
-    setError("");
     try {
-      const p = await api.createProject(form);
+      const p = await api.createProject({ name: newName.trim() });
+      setNewName("");
+      setNewOpen(false);
       await refreshProjects();
-      await openProject(p.id);
+      await selectProject(p.id);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -68,12 +93,12 @@ export default function App() {
     }
   }
 
-  async function saveProject(form) {
+  async function saveProjectFields(patch) {
     if (!projectId) return;
     setBusy(true);
     try {
-      await api.updateProject(projectId, form);
-      await refreshProjects();
+      const updated = await api.updateProject(projectId, patch);
+      setProjects((list) => list.map((p) => (p.id === updated.id ? updated : p)));
       setError("");
     } catch (e) {
       setError(e.message);
@@ -97,18 +122,11 @@ export default function App() {
       setCreative(res.creative);
       setDraft("");
       setPhotos([]);
-      setMemories(await api.getMemories(projectId));
     } catch (e) {
       setError(e.message);
     } finally {
       setBusy(false);
     }
-  }
-
-  async function onPickFiles(files) {
-    const list = Array.from(files || []).slice(0, 4);
-    const urls = await Promise.all(list.map(fileToDataUrl));
-    setPhotos((prev) => [...prev, ...urls].slice(0, 4));
   }
 
   async function approve() {
@@ -125,155 +143,169 @@ export default function App() {
     }
   }
 
-  async function saveSettings(form) {
-    setBusy(true);
-    try {
-      const s = await api.saveSettings(form);
-      setSettings(s);
-      setError("");
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
+  function go(sectionId) {
+    if ((sectionId === "settings" || sectionId === "chat") && !projectId) {
+      setError("Сначала выберите проект справа сверху");
+      setPickerOpen(true);
+      return;
     }
+    setSection(sectionId);
+    setSettingsSub(null);
+    setNavOpen(false);
+    setError("");
   }
 
-  async function loadMetrics() {
-    setBusy(true);
-    try {
-      setMetrics(await api.getMetrics(projectId));
-      setView("metrics");
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
+  const pickerLabel = project ? project.name : "Выберите проект";
 
   return (
-    <div className="app">
-      <header className="top">
-        <div>
+    <div className="shell">
+      <header className="topbar">
+        <div className="topbar-left">
+          <button className="icon-btn mobile-only" onClick={() => setNavOpen((v) => !v)} aria-label="Меню">
+            ☰
+          </button>
           <div className="brand">AvitologAI</div>
-          <div className="sub">{project ? project.name : "выберите проект"}</div>
         </div>
-        {busy && <span className="pill">работаю…</span>}
+
+        <div className="picker" ref={pickerRef}>
+          <button
+            className={`picker-btn ${project ? "has-project" : ""}`}
+            onClick={() => setPickerOpen((v) => !v)}
+          >
+            <span className="picker-label">{pickerLabel}</span>
+            <span className="picker-caret">▾</span>
+          </button>
+          {pickerOpen && (
+            <div className="picker-menu">
+              <button
+                className="picker-item new"
+                onClick={() => {
+                  setPickerOpen(false);
+                  setNewOpen(true);
+                }}
+              >
+                + Новый проект
+              </button>
+              <div className="picker-sep" />
+              {projects.map((p) => (
+                <button
+                  key={p.id}
+                  className={`picker-item ${p.id === projectId ? "active" : ""}`}
+                  onClick={() => selectProject(p.id)}
+                >
+                  {p.name}
+                </button>
+              ))}
+              {!projects.length && <div className="picker-empty">Пока нет проектов</div>}
+            </div>
+          )}
+        </div>
       </header>
 
-      {error && <div className="banner error">{error}</div>}
+      <div className="body">
+        <aside className={`sidebar ${navOpen ? "open" : ""}`}>
+          <nav className="side-nav">
+            <button className={section === "chat" ? "side-link active" : "side-link"} onClick={() => go("chat")}>
+              Чат
+            </button>
+            {NAV.map((item) => (
+              <button
+                key={item.id}
+                className={section === item.id || (item.id === "settings" && settingsSub) ? "side-link active" : "side-link"}
+                onClick={() => go(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+          <div className="side-foot">
+            {busy ? <span className="pulse">Синхронизация…</span> : <span>Проект изолирован</span>}
+          </div>
+        </aside>
+        {navOpen && <div className="scrim mobile-only" onClick={() => setNavOpen(false)} />}
 
-      <main className="main">
-        {view === "projects" && (
-          <ProjectsView projects={projects} onOpen={openProject} onCreate={createProject} />
-        )}
-        {view === "chat" && project && (
-          <ChatView
-            messages={messages}
-            creative={creative}
-            draft={draft}
-            setDraft={setDraft}
-            photos={photos}
-            setPhotos={setPhotos}
-            genImages={genImages}
-            setGenImages={setGenImages}
-            onPickFiles={onPickFiles}
-            onSend={sendChat}
-            onApprove={approve}
-            bottomRef={bottomRef}
-            busy={busy}
-          />
-        )}
-        {view === "project" && project && (
-          <ProjectSettingsView
-            project={project}
-            memories={memories}
-            onSave={saveProject}
-            onAddMemory={async (content) => {
-              await api.addMemory(projectId, { kind: "preference", content });
-              setMemories(await api.getMemories(projectId));
-            }}
-          />
-        )}
-        {view === "settings" && settings && (
-          <AppSettingsView settings={settings} onSave={saveSettings} />
-        )}
-        {view === "metrics" && metrics && <MetricsView metrics={metrics} />}
-      </main>
+        <main className="content">
+          {error && <div className="toast error">{error}</div>}
 
-      <nav className="nav">
-        <button className={view === "projects" ? "active" : ""} onClick={() => setView("projects")}>
-          Проекты
-        </button>
-        <button
-          className={view === "chat" ? "active" : ""}
-          disabled={!projectId}
-          onClick={() => projectId && openProject(projectId)}
-        >
-          Чат
-        </button>
-        <button
-          className={view === "project" ? "active" : ""}
-          disabled={!projectId}
-          onClick={() => setView("project")}
-        >
-          Настройки
-        </button>
-        <button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}>
-          API
-        </button>
-        <button className={view === "metrics" ? "active" : ""} onClick={loadMetrics}>
-          Метрики
-        </button>
-      </nav>
+          {section === "chat" && (
+            <ChatPanel
+              project={project}
+              messages={messages}
+              creative={creative}
+              draft={draft}
+              setDraft={setDraft}
+              photos={photos}
+              setPhotos={setPhotos}
+              genImages={genImages}
+              setGenImages={setGenImages}
+              onSend={sendChat}
+              onApprove={approve}
+              busy={busy}
+              bottomRef={bottomRef}
+              onNeedProject={() => setPickerOpen(true)}
+            />
+          )}
+
+          {section === "settings" && !settingsSub && (
+            <SettingsHub
+              project={project}
+              defaults={defaults}
+              onOpen={setSettingsSub}
+              onNeedProject={() => setPickerOpen(true)}
+            />
+          )}
+
+          {section === "settings" && settingsSub && project && (
+            <ModelSettings
+              kind={settingsSub}
+              project={project}
+              defaults={defaults}
+              onBack={() => setSettingsSub(null)}
+              onSave={saveProjectFields}
+              busy={busy}
+            />
+          )}
+
+          {section === "publications" && (
+            <Placeholder
+              title="Публикации"
+              text="Здесь появится очередь утверждённых креативов и выгрузка в Avito Автозагрузку."
+            />
+          )}
+
+          {section === "docs" && (
+            <DocsPanel />
+          )}
+        </main>
+      </div>
+
+      {newOpen && (
+        <div className="modal-scrim" onClick={() => setNewOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Новый проект</h2>
+            <p className="muted">Свои модели, промпты и чат — без смешивания с другими.</p>
+            <input
+              autoFocus
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="Название проекта"
+              onKeyDown={(e) => e.key === "Enter" && createProject()}
+            />
+            <div className="modal-actions">
+              <button onClick={() => setNewOpen(false)}>Отмена</button>
+              <button className="primary" disabled={!newName.trim() || busy} onClick={createProject}>
+                Создать
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function ProjectsView({ projects, onOpen, onCreate }) {
-  const [name, setName] = useState("");
-  const [theme, setTheme] = useState("");
-  return (
-    <section className="stack">
-      <h1>Проекты</h1>
-      <p className="muted">У каждого проекта свой чат, настройки, память и метрики.</p>
-      <div className="card form">
-        <label>
-          Название
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Например: Диваны МСК" />
-        </label>
-        <label>
-          Тема / ниша
-          <input value={theme} onChange={(e) => setTheme(e.target.value)} placeholder="мебель, автозапчасти…" />
-        </label>
-        <button
-          className="primary"
-          disabled={!name.trim()}
-          onClick={() => {
-            onCreate({ name: name.trim(), theme, ideas: "", constraints: "" });
-            setName("");
-            setTheme("");
-          }}
-        >
-          + Создать проект
-        </button>
-      </div>
-      <div className="list">
-        {projects.map((p) => (
-          <button key={p.id} className="card row" onClick={() => onOpen(p.id)}>
-            <div>
-              <strong>{p.name}</strong>
-              <div className="muted">{p.theme || "без темы"}</div>
-            </div>
-            <span className="chev">›</span>
-          </button>
-        ))}
-        {!projects.length && <div className="muted">Пока пусто — создайте первый проект.</div>}
-      </div>
-    </section>
-  );
-}
-
-function ChatView({
+function ChatPanel({
+  project,
   messages,
   creative,
   draft,
@@ -282,33 +314,46 @@ function ChatView({
   setPhotos,
   genImages,
   setGenImages,
-  onPickFiles,
   onSend,
   onApprove,
-  bottomRef,
   busy,
+  bottomRef,
+  onNeedProject,
 }) {
+  if (!project) {
+    return (
+      <EmptyState
+        title="Нет активного проекта"
+        text="Выберите проект справа сверху или создайте новый — чат и настройки привязаны только к нему."
+        action="Выбрать проект"
+        onAction={onNeedProject}
+      />
+    );
+  }
+
   return (
-    <section className="chat">
+    <section className="chat-panel">
+      <div className="panel-head">
+        <div>
+          <div className="eyebrow">Чат проекта</div>
+          <h1>{project.name}</h1>
+        </div>
+      </div>
       <div className="messages">
+        {!messages.length && (
+          <div className="empty-inline">
+            Опишите товар или прикрепите фото — авитолог соберёт текст и креатив.
+          </div>
+        )}
         {messages.map((m) => (
           <div key={m.id} className={`bubble ${m.role}`}>
             <div className="role">{m.role === "user" ? "Вы" : "Авитолог"}</div>
             <div className="body">{m.content}</div>
-            {!!m.attachments?.length && (
-              <div className="thumbs">
-                {m.attachments.map((a, i) =>
-                  a.url && !String(a.url).includes("…") ? (
-                    <img key={i} src={a.url} alt="" />
-                  ) : null
-                )}
-              </div>
-            )}
           </div>
         ))}
         {creative && (
-          <div className="card creative">
-            <h3>{creative.title || "Креатив"}</h3>
+          <div className="creative">
+            <div className="creative-title">{creative.title || "Креатив"}</div>
             <pre>{creative.description}</pre>
             {!!creative.images?.length && (
               <div className="thumbs">
@@ -317,11 +362,11 @@ function ChatView({
                 ))}
               </div>
             )}
-            <div className="actions">
+            <div className="row-actions">
               <button className="primary" disabled={creative.status === "approved" || busy} onClick={onApprove}>
                 {creative.status === "approved" ? "Утверждено" : "Утвердить"}
               </button>
-              <span className="muted">Правки — напишите свободным текстом ниже</span>
+              <span className="muted">Правки — свободным текстом ниже</span>
             </div>
           </div>
         )}
@@ -331,215 +376,236 @@ function ChatView({
         {!!photos.length && (
           <div className="thumbs">
             {photos.map((p, i) => (
-              <button key={i} className="thumb-wrap" onClick={() => setPhotos(photos.filter((_, j) => j !== i))}>
+              <button key={i} className="thumb" onClick={() => setPhotos(photos.filter((_, j) => j !== i))}>
                 <img src={p} alt="" />
               </button>
             ))}
           </div>
         )}
         <div className="composer-row">
-          <label className="file">
-            📷
+          <label className="attach">
+            +
             <input
+              hidden
               type="file"
               accept="image/*"
               multiple
-              hidden
-              onChange={(e) => onPickFiles(e.target.files)}
+              onChange={async (e) => {
+                const urls = await Promise.all(Array.from(e.target.files || []).slice(0, 4).map(fileToDataUrl));
+                setPhotos((prev) => [...prev, ...urls].slice(0, 4));
+              }}
             />
           </label>
           <textarea
+            rows={2}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="Задание или правки…"
-            rows={2}
           />
-          <button className="primary" disabled={busy} onClick={onSend}>
-            →
+          <button className="primary send" disabled={busy} onClick={onSend}>
+            Отправить
           </button>
         </div>
         <label className="check">
           <input type="checkbox" checked={genImages} onChange={(e) => setGenImages(e.target.checked)} />
-          Генерировать фото (OpenRouter image model)
+          Генерировать изображение
         </label>
       </div>
     </section>
   );
 }
 
-function ProjectSettingsView({ project, memories, onSave, onAddMemory }) {
-  const [form, setForm] = useState({
-    name: project.name,
-    theme: project.theme || "",
-    ideas: project.ideas || "",
-    constraints: project.constraints || "",
-  });
-  const [mem, setMem] = useState("");
-  useEffect(() => {
-    setForm({
-      name: project.name,
-      theme: project.theme || "",
-      ideas: project.ideas || "",
-      constraints: project.constraints || "",
-    });
-  }, [project]);
+function SettingsHub({ project, defaults, onOpen, onNeedProject }) {
+  if (!project) {
+    return (
+      <EmptyState
+        title="Настройки привязаны к проекту"
+        text="Каждый проект видит только свои модели и промпты. Выберите проект, чтобы открыть настройки."
+        action="Выбрать проект"
+        onAction={onNeedProject}
+      />
+    );
+  }
+
+  const rows = [
+    {
+      id: "orch",
+      title: "Оркестратор",
+      hint: project.orchestrator_model || defaults?.default_orchestrator_model || "из Variables",
+    },
+    {
+      id: "image",
+      title: "Генерация изображений",
+      hint: project.image_model || defaults?.default_image_model || "из Variables",
+    },
+    {
+      id: "vision",
+      title: "Vision",
+      hint: project.vision_model || defaults?.default_vision_model || "из Variables",
+    },
+  ];
 
   return (
-    <section className="stack">
-      <h1>Настройки проекта</h1>
-      <div className="card form">
-        <label>
-          Название
-          <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-        </label>
-        <label>
-          Тема
-          <textarea value={form.theme} onChange={(e) => setForm({ ...form, theme: e.target.value })} rows={2} />
-        </label>
-        <label>
-          Идеи
-          <textarea value={form.ideas} onChange={(e) => setForm({ ...form, ideas: e.target.value })} rows={3} />
-        </label>
-        <label>
-          Ограничения
-          <textarea
-            value={form.constraints}
-            onChange={(e) => setForm({ ...form, constraints: e.target.value })}
-            rows={3}
-          />
-        </label>
-        <button className="primary" onClick={() => onSave(form)}>
-          Сохранить
-        </button>
-      </div>
-      <h2>Память проекта</h2>
-      <p className="muted">Правки и частые действия сохраняются автоматически; можно добавить вручную.</p>
-      <div className="card form">
-        <input value={mem} onChange={(e) => setMem(e.target.value)} placeholder="Всегда короткие заголовки…" />
-        <button
-          disabled={!mem.trim()}
-          onClick={async () => {
-            await onAddMemory(mem.trim());
-            setMem("");
-          }}
-        >
-          Добавить в память
-        </button>
-      </div>
-      <div className="list">
-        {memories.map((m) => (
-          <div key={m.id} className="card">
-            <div className="pill">{m.kind} · ×{m.hits}</div>
-            <div>{m.content}</div>
-          </div>
-        ))}
-        {!memories.length && <div className="muted">Память пока пустая.</div>}
-      </div>
-    </section>
-  );
-}
-
-function AppSettingsView({ settings, onSave }) {
-  const [form, setForm] = useState({
-    openrouter_api_key: "",
-    orchestrator_model: settings.orchestrator_model,
-    vision_model: settings.vision_model,
-    image_model: settings.image_model,
-    orchestrator_instruction: settings.orchestrator_instruction,
-  });
-
-  useEffect(() => {
-    setForm((f) => ({
-      ...f,
-      orchestrator_model: settings.orchestrator_model,
-      vision_model: settings.vision_model,
-      image_model: settings.image_model,
-      orchestrator_instruction: settings.orchestrator_instruction,
-    }));
-  }, [settings]);
-
-  return (
-    <section className="stack">
-      <h1>OpenRouter</h1>
-      <p className="muted">
-        Ключ: {settings.openrouter_api_key_set ? settings.openrouter_api_key_masked : "не задан"}. Оркестратор —
-        быстрая/бесплатная модель; отдельно — модель картинок.
-      </p>
-      <div className="card form">
-        <label>
-          API key
-          <input
-            type="password"
-            value={form.openrouter_api_key}
-            onChange={(e) => setForm({ ...form, openrouter_api_key: e.target.value })}
-            placeholder="sk-or-…"
-          />
-        </label>
-        <label>
-          Оркестратор (free/fast)
-          <input
-            value={form.orchestrator_model}
-            onChange={(e) => setForm({ ...form, orchestrator_model: e.target.value })}
-            placeholder="openrouter/free"
-          />
-        </label>
-        <label>
-          Vision (фото во входе)
-          <input
-            value={form.vision_model}
-            onChange={(e) => setForm({ ...form, vision_model: e.target.value })}
-            placeholder="openrouter/free"
-          />
-        </label>
-        <label>
-          Image model
-          <input
-            value={form.image_model}
-            onChange={(e) => setForm({ ...form, image_model: e.target.value })}
-            placeholder="black-forest-labs/flux.2-flex"
-          />
-        </label>
-        <label>
-          Инструкция оркестратора
-          <textarea
-            rows={8}
-            value={form.orchestrator_instruction}
-            onChange={(e) => setForm({ ...form, orchestrator_instruction: e.target.value })}
-          />
-        </label>
-        <button className="primary" onClick={() => onSave(form)}>
-          Сохранить
-        </button>
-        <div className="hints">
-          <button type="button" onClick={() => setForm({ ...form, orchestrator_model: "openrouter/free" })}>
-            free router
-          </button>
-          <button
-            type="button"
-            onClick={() => setForm({ ...form, orchestrator_model: "google/gemini-2.5-flash" })}
-          >
-            fast gemini
-          </button>
+    <section className="stack-page">
+      <div className="panel-head">
+        <div>
+          <div className="eyebrow">Только для «{project.name}»</div>
+          <h1>Настройки</h1>
         </div>
       </div>
+      <p className="lede">
+        Модели по умолчанию берутся из Variables на Railway. Пустое поле = дефолт. Другие проекты эти значения не
+        видят.
+      </p>
+      <div className="rows">
+        {rows.map((r) => (
+          <button key={r.id} className="row-btn" onClick={() => onOpen(r.id)}>
+            <div>
+              <strong>{r.title}</strong>
+              <div className="mono">{r.hint}</div>
+            </div>
+            <span className="chev">›</span>
+          </button>
+        ))}
+      </div>
     </section>
   );
 }
 
-function MetricsView({ metrics }) {
-  const entries = Object.entries(metrics.totals || {}).sort((a, b) => b[1] - a[1]);
+function ModelSettings({ kind, project, defaults, onBack, onSave, busy }) {
+  const meta = {
+    orch: {
+      title: "Оркестратор",
+      modelKey: "orchestrator_model",
+      fallback: defaults?.default_orchestrator_model,
+      fields: [
+        { key: "orchestrator_prompt", label: "Системный промпт", rows: 6 },
+        { key: "theme", label: "Тематика", rows: 2 },
+        { key: "ideas", label: "Идеи", rows: 3 },
+        { key: "constraints", label: "Ограничения", rows: 3 },
+      ],
+    },
+    image: {
+      title: "Генерация изображений",
+      modelKey: "image_model",
+      fallback: defaults?.default_image_model,
+      fields: [{ key: "image_style_prompt", label: "Стиль / промпт для фото", rows: 5 }],
+    },
+    vision: {
+      title: "Vision",
+      modelKey: "vision_model",
+      fallback: defaults?.default_vision_model,
+      fields: [{ key: "vision_prompt", label: "Инструкция для разбора фото", rows: 5 }],
+    },
+  }[kind];
+
+  const [form, setForm] = useState(() => {
+    const base = { [meta.modelKey]: project[meta.modelKey] || "" };
+    meta.fields.forEach((f) => {
+      base[f.key] = project[f.key] || "";
+    });
+    return base;
+  });
+
+  useEffect(() => {
+    const base = { [meta.modelKey]: project[meta.modelKey] || "" };
+    meta.fields.forEach((f) => {
+      base[f.key] = project[f.key] || "";
+    });
+    setForm(base);
+  }, [project, kind]);
+
   return (
-    <section className="stack">
-      <h1>Метрики</h1>
-      <div className="grid">
-        {entries.map(([k, v]) => (
-          <div key={k} className="card metric">
-            <div className="muted">{k}</div>
-            <strong>{v}</strong>
-          </div>
+    <section className="stack-page">
+      <button className="back" onClick={onBack}>
+        ← Настройки
+      </button>
+      <div className="panel-head">
+        <div>
+          <div className="eyebrow">{project.name}</div>
+          <h1>{meta.title}</h1>
+        </div>
+      </div>
+      <div className="form-card">
+        <label>
+          Модель OpenRouter
+          <input
+            className="mono-input"
+            value={form[meta.modelKey]}
+            onChange={(e) => setForm({ ...form, [meta.modelKey]: e.target.value })}
+            placeholder={meta.fallback || "slug модели"}
+          />
+          <span className="field-hint">По умолчанию: {meta.fallback || "—"}</span>
+        </label>
+        {meta.fields.map((f) => (
+          <label key={f.key}>
+            {f.label}
+            <textarea
+              rows={f.rows}
+              value={form[f.key]}
+              onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
+            />
+          </label>
         ))}
-        {!entries.length && <div className="muted">Пока нет событий.</div>}
+        <button className="primary" disabled={busy} onClick={() => onSave(form)}>
+          Сохранить для проекта
+        </button>
       </div>
     </section>
+  );
+}
+
+function DocsPanel() {
+  return (
+    <section className="stack-page">
+      <div className="panel-head">
+        <div>
+          <div className="eyebrow">Справка</div>
+          <h1>Документация</h1>
+        </div>
+      </div>
+      <div className="doc-card">
+        <h3>Как работать</h3>
+        <ol>
+          <li>Создайте проект в переключателе справа сверху.</li>
+          <li>В «Настройки» задайте модели и промпты только для этого проекта.</li>
+          <li>В чате отправьте задание или фото → утвердите креатив.</li>
+        </ol>
+        <h3>Изоляция</h3>
+        <p>Чаты, память, модели и промпты хранятся по `project_id` и не пересекаются.</p>
+        <h3>Variables</h3>
+        <p className="mono">
+          ORCHESTRATOR_MODEL · VISION_MODEL · IMAGE_MODEL · OPENROUTER_API_KEY · PUBLIC_BASE_URL · TELEGRAM_BOT_TOKEN
+        </p>
+      </div>
+    </section>
+  );
+}
+
+function Placeholder({ title, text }) {
+  return (
+    <section className="stack-page">
+      <div className="panel-head">
+        <div>
+          <div className="eyebrow">Скоро</div>
+          <h1>{title}</h1>
+        </div>
+      </div>
+      <p className="lede">{text}</p>
+    </section>
+  );
+}
+
+function EmptyState({ title, text, action, onAction }) {
+  return (
+    <div className="empty-state">
+      <h2>{title}</h2>
+      <p>{text}</p>
+      {action && (
+        <button className="primary" onClick={onAction}>
+          {action}
+        </button>
+      )}
+    </div>
   );
 }

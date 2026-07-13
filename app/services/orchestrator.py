@@ -143,19 +143,23 @@ async def run_orchestrator(
 
     vision_notes = ""
     vision_images = _normalize_incoming_images(images)
+    vision_model = (project.vision_model or cfg.vision_model or settings.vision_model).strip()
+    orch_model_default = (
+        project.orchestrator_model or cfg.orchestrator_model or settings.orchestrator_model
+    ).strip()
+    image_model = (project.image_model or cfg.image_model or settings.image_model).strip()
+    vision_system = (
+        project.vision_prompt
+        or "Опиши товар на фото для объявления Авито: категория, состояние, "
+        "цвет, ключевые признаки, дефекты. Кратко, по пунктам, на русском."
+    )
     if vision_images:
         try:
             vision_payload = await chat_completions(
                 api_key,
-                model=cfg.vision_model or settings.vision_model,
+                model=vision_model,
                 messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "Опиши товар на фото для объявления Авито: категория, состояние, "
-                            "цвет, ключевые признаки, дефекты. Кратко, по пунктам, на русском."
-                        ),
-                    },
+                    {"role": "system", "content": vision_system},
                     {
                         "role": "user",
                         "content": build_vision_user_content(
@@ -179,7 +183,11 @@ async def run_orchestrator(
     if revise_of_creative_id:
         prev_creative = db.get(Creative, revise_of_creative_id)
 
-    instruction = cfg.orchestrator_instruction or settings.default_orchestrator_instruction
+    instruction = (
+        project.orchestrator_prompt
+        or cfg.orchestrator_instruction
+        or settings.default_orchestrator_instruction
+    )
     system = (
         f"{instruction}\n\n{project_block}\n\n{mem_block}\n\n"
         f"Анализ фото:\n{vision_notes or 'фото не переданы'}"
@@ -197,10 +205,10 @@ async def run_orchestrator(
             user_text or "Сформируй креатив объявления по фото и настройкам проекта.",
             vision_images,
         )
-        orch_model = cfg.vision_model or cfg.orchestrator_model
+        orch_model = vision_model or orch_model_default
     else:
         user_content = user_text or "Сформируй креатив объявления по настройкам проекта."
-        orch_model = cfg.orchestrator_model or settings.orchestrator_model
+        orch_model = orch_model_default
 
     messages = [{"role": "system", "content": system}, *history_msgs, {"role": "user", "content": user_content}]
     raw = await chat_completions(api_key, model=orch_model, messages=messages)
@@ -210,11 +218,14 @@ async def run_orchestrator(
     image_paths: list[str] = []
     need_images = bool(parsed.get("need_images", True)) and generate_images
     image_prompt = str(parsed.get("image_prompt") or "").strip()
+    style = (project.image_style_prompt or "").strip()
+    if style and image_prompt:
+        image_prompt = f"{image_prompt}\n\nStyle: {style}"
     if need_images and image_prompt:
         try:
             blobs = await generate_image(
                 api_key,
-                model=cfg.image_model or settings.image_model,
+                model=image_model,
                 prompt=image_prompt,
                 n=1,
             )

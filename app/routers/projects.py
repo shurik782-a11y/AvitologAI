@@ -24,6 +24,12 @@ def create_project(body: ProjectCreate, db: Session = Depends(get_db)) -> Projec
         theme=body.theme,
         ideas=body.ideas,
         constraints=body.constraints,
+        orchestrator_model=body.orchestrator_model,
+        vision_model=body.vision_model,
+        image_model=body.image_model,
+        orchestrator_prompt=body.orchestrator_prompt,
+        vision_prompt=body.vision_prompt,
+        image_style_prompt=body.image_style_prompt,
         extra=body.extra or {},
     )
     db.add(row)

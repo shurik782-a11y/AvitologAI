@@ -27,11 +27,14 @@ def get_settings(db: Session = Depends(get_db)) -> AppSettingsOut:
     return AppSettingsOut(
         openrouter_api_key_set=bool(key),
         openrouter_api_key_masked=_mask(key),
-        orchestrator_model=row.orchestrator_model,
-        vision_model=row.vision_model,
-        image_model=row.image_model,
+        orchestrator_model=row.orchestrator_model or settings.orchestrator_model,
+        vision_model=row.vision_model or settings.vision_model,
+        image_model=row.image_model or settings.image_model,
         orchestrator_instruction=row.orchestrator_instruction
         or settings.default_orchestrator_instruction,
+        default_orchestrator_model=settings.orchestrator_model,
+        default_vision_model=settings.vision_model,
+        default_image_model=settings.image_model,
     )
 
 
