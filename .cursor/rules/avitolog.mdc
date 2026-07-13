@@ -1,0 +1,15 @@
+---
+description: AvitologAI project rules — isolation, onboarding, feed, metrics
+globs:
+  - "app/**"
+  - "web/**"
+alwaysApply: true
+---
+
+# Avitolog rules
+
+- Scope all reads/writes by `project_id`. Never leak another project's settings or chat.
+- New project → first assistant message «Давайте выполним настройку»; onboarding before creative pipeline.
+- Orchestrator JSON must include `need_images`; do not rely on client `generate_images`.
+- Approve → rebuild Autoload XML; metrics refresh only on explicit button.
+- Push to `shurik782-a11y/AvitologAI` after meaningful changes.

@@ -4,26 +4,46 @@ import { api, fileToDataUrl } from "./api.js";
 const NAV = [
   { id: "settings", label: "Настройки" },
   { id: "publications", label: "Публикации" },
+  { id: "metrics", label: "Метрики" },
   { id: "docs", label: "Документация" },
 ];
+
+function PaperclipIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M21 12.5V8.2a5.2 5.2 0 0 0-10.4 0v9.1a3.4 3.4 0 1 0 6.8 0V9.1a1.6 1.6 0 1 0-3.2 0v7.5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 export default function App() {
   const [projects, setProjects] = useState([]);
   const [projectId, setProjectId] = useState(null);
   const [section, setSection] = useState("chat");
-  const [settingsSub, setSettingsSub] = useState(null); // orch | image | vision | null
+  const [settingsSub, setSettingsSub] = useState(null);
   const [defaults, setDefaults] = useState(null);
+  const [billing, setBilling] = useState(null);
   const [messages, setMessages] = useState([]);
   const [creative, setCreative] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState("");
   const [photos, setPhotos] = useState([]);
-  const [genImages, setGenImages] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [newName, setNewName] = useState("");
+  const [pubs, setPubs] = useState([]);
+  const [runs, setRuns] = useState([]);
+  const [metricList, setMetricList] = useState([]);
+  const [metricId, setMetricId] = useState(null);
+  const [snapshot, setSnapshot] = useState(null);
   const bottomRef = useRef(null);
   const pickerRef = useRef(null);
 
@@ -38,12 +58,18 @@ export default function App() {
     return list;
   }
 
+  async function refreshBilling() {
+    try {
+      setBilling(await api.billing());
+    } catch {
+      setBilling({ available: false, label: "баланс н/д" });
+    }
+  }
+
   useEffect(() => {
     refreshProjects().catch((e) => setError(e.message));
-    api
-      .getSettings()
-      .then(setDefaults)
-      .catch((e) => setError(e.message));
+    api.getSettings().then(setDefaults).catch((e) => setError(e.message));
+    refreshBilling();
   }, []);
 
   useEffect(() => {
@@ -64,12 +90,14 @@ export default function App() {
     setNavOpen(false);
     setSection("chat");
     setSettingsSub(null);
+    setMetricId(null);
+    setSnapshot(null);
     setError("");
     setBusy(true);
     try {
-      const msgs = await api.getMessages(id);
-      setMessages(msgs);
+      setMessages(await api.getMessages(id));
       setCreative(null);
+      await refreshProjects();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -115,13 +143,13 @@ export default function App() {
       const res = await api.chat(projectId, {
         content: draft.trim(),
         images: photos,
-        generate_images: genImages,
         revise_of_creative_id: creative?.id || null,
       });
       setMessages((m) => [...m, ...res.messages]);
       setCreative(res.creative);
       setDraft("");
       setPhotos([]);
+      if (res.onboarding_done) await refreshProjects();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -133,8 +161,8 @@ export default function App() {
     if (!projectId || !creative) return;
     setBusy(true);
     try {
-      const c = await api.approve(projectId, creative.id);
-      setCreative(c);
+      const res = await api.approve(projectId, creative.id);
+      setCreative(res.creative);
       setMessages(await api.getMessages(projectId));
     } catch (e) {
       setError(e.message);
@@ -143,16 +171,76 @@ export default function App() {
     }
   }
 
+  async function loadPublications() {
+    if (!projectId) return;
+    setBusy(true);
+    try {
+      setPubs(await api.publications(projectId));
+      setRuns(await api.publishRuns(projectId));
+      setSection("publications");
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function loadMetrics() {
+    if (!projectId) return;
+    setBusy(true);
+    try {
+      setMetricList(await api.metricPublications(projectId));
+      setSection("metrics");
+      setMetricId(null);
+      setSnapshot(null);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function openMetric(cid) {
+    setMetricId(cid);
+    if (!cid) {
+      setSnapshot(null);
+      return;
+    }
+    setBusy(true);
+    try {
+      setSnapshot(await api.metricSnapshot(projectId, cid));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refreshMetric() {
+    if (!projectId || !metricId) return;
+    setBusy(true);
+    try {
+      setSnapshot(await api.metricRefresh(projectId, metricId));
+      setMetricList(await api.metricPublications(projectId));
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function go(sectionId) {
-    if ((sectionId === "settings" || sectionId === "chat") && !projectId) {
+    if (["settings", "chat", "publications", "metrics"].includes(sectionId) && !projectId) {
       setError("Сначала выберите проект справа сверху");
       setPickerOpen(true);
       return;
     }
-    setSection(sectionId);
     setSettingsSub(null);
     setNavOpen(false);
     setError("");
+    if (sectionId === "publications") return loadPublications();
+    if (sectionId === "metrics") return loadMetrics();
+    setSection(sectionId);
   }
 
   const pickerLabel = project ? project.name : "Выберите проект";
@@ -165,6 +253,9 @@ export default function App() {
             ☰
           </button>
           <div className="brand">AvitologAI</div>
+          <div className="balance" title={billing?.error || ""}>
+            {billing?.label || "баланс…"}
+          </div>
         </div>
 
         <div className="picker" ref={pickerRef}>
@@ -211,16 +302,18 @@ export default function App() {
             {NAV.map((item) => (
               <button
                 key={item.id}
-                className={section === item.id || (item.id === "settings" && settingsSub) ? "side-link active" : "side-link"}
+                className={
+                  section === item.id || (item.id === "settings" && settingsSub)
+                    ? "side-link active"
+                    : "side-link"
+                }
                 onClick={() => go(item.id)}
               >
                 {item.label}
               </button>
             ))}
           </nav>
-          <div className="side-foot">
-            {busy ? <span className="pulse">Синхронизация…</span> : <span>Проект изолирован</span>}
-          </div>
+          <div className="side-foot">{busy ? <span className="pulse">Синхронизация…</span> : <span>Проект изолирован</span>}</div>
         </aside>
         {navOpen && <div className="scrim mobile-only" onClick={() => setNavOpen(false)} />}
 
@@ -236,8 +329,6 @@ export default function App() {
               setDraft={setDraft}
               photos={photos}
               setPhotos={setPhotos}
-              genImages={genImages}
-              setGenImages={setGenImages}
               onSend={sendChat}
               onApprove={approve}
               busy={busy}
@@ -252,6 +343,7 @@ export default function App() {
               defaults={defaults}
               onOpen={setSettingsSub}
               onNeedProject={() => setPickerOpen(true)}
+              onSaveAvito={saveProjectFields}
             />
           )}
 
@@ -266,16 +358,42 @@ export default function App() {
             />
           )}
 
-          {section === "publications" && (
-            <Placeholder
-              title="Публикации"
-              text="Здесь появится очередь утверждённых креативов и выгрузка в Avito Автозагрузку."
+          {section === "publications" && project && (
+            <PublicationsPanel
+              project={project}
+              pubs={pubs}
+              runs={runs}
+              busy={busy}
+              onPublish={async () => {
+                setBusy(true);
+                try {
+                  await api.triggerPublish(projectId);
+                  setPubs(await api.publications(projectId));
+                  setRuns(await api.publishRuns(projectId));
+                } catch (e) {
+                  setError(e.message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
             />
           )}
 
-          {section === "docs" && (
-            <DocsPanel />
+          {section === "metrics" && project && (
+            <MetricsPanel
+              projectId={projectId}
+              list={metricList}
+              metricId={metricId}
+              snapshot={snapshot}
+              onOpen={openMetric}
+              onRefresh={refreshMetric}
+              busy={busy}
+              onError={setError}
+              onListReload={async () => setMetricList(await api.metricPublications(projectId))}
+            />
           )}
+
+          {section === "docs" && <DocsPanel />}
         </main>
       </div>
 
@@ -283,7 +401,7 @@ export default function App() {
         <div className="modal-scrim" onClick={() => setNewOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h2>Новый проект</h2>
-            <p className="muted">Свои модели, промпты и чат — без смешивания с другими.</p>
+            <p className="muted">После создания авитолог попросит настройку в чате.</p>
             <input
               autoFocus
               value={newName}
@@ -312,8 +430,6 @@ function ChatPanel({
   setDraft,
   photos,
   setPhotos,
-  genImages,
-  setGenImages,
   onSend,
   onApprove,
   busy,
@@ -324,7 +440,7 @@ function ChatPanel({
     return (
       <EmptyState
         title="Нет активного проекта"
-        text="Выберите проект справа сверху или создайте новый — чат и настройки привязаны только к нему."
+        text="Выберите проект справа сверху или создайте новый."
         action="Выбрать проект"
         onAction={onNeedProject}
       />
@@ -340,11 +456,7 @@ function ChatPanel({
         </div>
       </div>
       <div className="messages">
-        {!messages.length && (
-          <div className="empty-inline">
-            Опишите товар или прикрепите фото — авитолог соберёт текст и креатив.
-          </div>
-        )}
+        {!messages.length && <div className="empty-inline">Опишите товар или прикрепите фото.</div>}
         {messages.map((m) => (
           <div key={m.id} className={`bubble ${m.role}`}>
             <div className="role">{m.role === "user" ? "Вы" : "Авитолог"}</div>
@@ -383,21 +495,25 @@ function ChatPanel({
           </div>
         )}
         <div className="composer-row">
-          <label className="attach">
-            +
+          <label className="attach" title="Прикрепить фото">
+            <PaperclipIcon />
             <input
               hidden
               type="file"
               accept="image/*"
               multiple
               onChange={async (e) => {
-                const urls = await Promise.all(Array.from(e.target.files || []).slice(0, 4).map(fileToDataUrl));
+                const urls = await Promise.all(
+                  Array.from(e.target.files || [])
+                    .slice(0, 4)
+                    .map(fileToDataUrl)
+                );
                 setPhotos((prev) => [...prev, ...urls].slice(0, 4));
               }}
             />
           </label>
           <textarea
-            rows={2}
+            rows={1}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="Задание или правки…"
@@ -406,21 +522,39 @@ function ChatPanel({
             Отправить
           </button>
         </div>
-        <label className="check">
-          <input type="checkbox" checked={genImages} onChange={(e) => setGenImages(e.target.checked)} />
-          Генерировать изображение
-        </label>
       </div>
     </section>
   );
 }
 
-function SettingsHub({ project, defaults, onOpen, onNeedProject }) {
+function SettingsHub({ project, defaults, onOpen, onNeedProject, onSaveAvito }) {
+  const [avito, setAvito] = useState({
+    avito_category: "",
+    avito_address: "",
+    avito_contact_phone: "",
+    avito_client_id: "",
+    avito_client_secret: "",
+    avito_user_id: "",
+    avito_item_hint: "",
+  });
+
+  useEffect(() => {
+    if (!project) return;
+    setAvito({
+      avito_category: project.avito_category || "",
+      avito_address: project.avito_address || "",
+      avito_contact_phone: project.avito_contact_phone || "",
+      avito_client_id: project.avito_client_id || "",
+      avito_client_secret: "",
+      avito_user_id: project.avito_user_id || "",
+    });
+  }, [project]);
+
   if (!project) {
     return (
       <EmptyState
         title="Настройки привязаны к проекту"
-        text="Каждый проект видит только свои модели и промпты. Выберите проект, чтобы открыть настройки."
+        text="Выберите проект, чтобы открыть настройки."
         action="Выбрать проект"
         onAction={onNeedProject}
       />
@@ -453,10 +587,6 @@ function SettingsHub({ project, defaults, onOpen, onNeedProject }) {
           <h1>Настройки</h1>
         </div>
       </div>
-      <p className="lede">
-        Модели по умолчанию берутся из Variables на Railway. Пустое поле = дефолт. Другие проекты эти значения не
-        видят.
-      </p>
       <div className="rows">
         {rows.map((r) => (
           <button key={r.id} className="row-btn" onClick={() => onOpen(r.id)}>
@@ -467,6 +597,61 @@ function SettingsHub({ project, defaults, onOpen, onNeedProject }) {
             <span className="chev">›</span>
           </button>
         ))}
+      </div>
+      <div className="form-card">
+        <h3>Avito / фид</h3>
+        <label>
+          Категория
+          <input
+            value={avito.avito_category}
+            onChange={(e) => setAvito({ ...avito, avito_category: e.target.value })}
+          />
+        </label>
+        <label>
+          Адрес
+          <input
+            value={avito.avito_address}
+            onChange={(e) => setAvito({ ...avito, avito_address: e.target.value })}
+          />
+        </label>
+        <label>
+          Телефон
+          <input
+            value={avito.avito_contact_phone}
+            onChange={(e) => setAvito({ ...avito, avito_contact_phone: e.target.value })}
+          />
+        </label>
+        <label>
+          Client ID
+          <input
+            value={avito.avito_client_id}
+            onChange={(e) => setAvito({ ...avito, avito_client_id: e.target.value })}
+          />
+        </label>
+        <label>
+          Client Secret {project.avito_client_secret_set ? "(задан)" : ""}
+          <input
+            type="password"
+            value={avito.avito_client_secret}
+            onChange={(e) => setAvito({ ...avito, avito_client_secret: e.target.value })}
+            placeholder="оставьте пустым чтобы не менять"
+          />
+        </label>
+        <label>
+          User ID
+          <input
+            value={avito.avito_user_id}
+            onChange={(e) => setAvito({ ...avito, avito_user_id: e.target.value })}
+          />
+        </label>
+        {project.feed_url && (
+          <p className="mono muted" style={{ wordBreak: "break-all" }}>
+            Feed: {project.feed_url}
+          </p>
+        )}
+        <button className="primary" onClick={() => onSaveAvito(avito)}>
+          Сохранить Avito
+        </button>
       </div>
     </section>
   );
@@ -499,14 +684,7 @@ function ModelSettings({ kind, project, defaults, onBack, onSave, busy }) {
     },
   }[kind];
 
-  const [form, setForm] = useState(() => {
-    const base = { [meta.modelKey]: project[meta.modelKey] || "" };
-    meta.fields.forEach((f) => {
-      base[f.key] = project[f.key] || "";
-    });
-    return base;
-  });
-
+  const [form, setForm] = useState({});
   useEffect(() => {
     const base = { [meta.modelKey]: project[meta.modelKey] || "" };
     meta.fields.forEach((f) => {
@@ -531,7 +709,7 @@ function ModelSettings({ kind, project, defaults, onBack, onSave, busy }) {
           Модель OpenRouter
           <input
             className="mono-input"
-            value={form[meta.modelKey]}
+            value={form[meta.modelKey] || ""}
             onChange={(e) => setForm({ ...form, [meta.modelKey]: e.target.value })}
             placeholder={meta.fallback || "slug модели"}
           />
@@ -542,7 +720,7 @@ function ModelSettings({ kind, project, defaults, onBack, onSave, busy }) {
             {f.label}
             <textarea
               rows={f.rows}
-              value={form[f.key]}
+              value={form[f.key] || ""}
               onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
             />
           </label>
@@ -550,6 +728,143 @@ function ModelSettings({ kind, project, defaults, onBack, onSave, busy }) {
         <button className="primary" disabled={busy} onClick={() => onSave(form)}>
           Сохранить для проекта
         </button>
+      </div>
+    </section>
+  );
+}
+
+function PublicationsPanel({ project, pubs, runs, onPublish, busy }) {
+  return (
+    <section className="stack-page">
+      <div className="panel-head">
+        <div>
+          <div className="eyebrow">{project.name}</div>
+          <h1>Публикации</h1>
+        </div>
+      </div>
+      <div className="form-card">
+        <p className="muted">XML-фид Автозагрузки. После утверждения креатив попадает в фид.</p>
+        {project.feed_url && (
+          <p className="mono" style={{ wordBreak: "break-all" }}>
+            {project.feed_url}
+          </p>
+        )}
+        <button className="primary" disabled={busy} onClick={onPublish}>
+          Обновить фид / запустить подгрузку
+        </button>
+      </div>
+      <div className="rows">
+        {pubs.map((p) => (
+          <div key={p.id} className="card">
+            <strong>{p.title}</strong>
+            <div className="muted mono">
+              {p.avito_ad_id || "—"} · {p.publish_status || p.status}
+            </div>
+          </div>
+        ))}
+        {!pubs.length && <div className="muted">Пока нет утверждённых креативов.</div>}
+      </div>
+      {!!runs.length && (
+        <div className="form-card">
+          <h3>Последние запуски</h3>
+          {runs.map((r) => (
+            <div key={r.id} className="muted mono">
+              #{r.id} {r.status} {r.error || ""}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function MetricsPanel({
+  projectId,
+  list,
+  metricId,
+  snapshot,
+  onOpen,
+  onRefresh,
+  busy,
+  onError,
+  onListReload,
+}) {
+  const [itemId, setItemId] = useState("");
+  useEffect(() => {
+    const row = list.find((x) => x.creative_id === metricId);
+    setItemId(row?.avito_item_id || "");
+  }, [metricId, list]);
+
+  if (metricId) {
+    return (
+      <section className="stack-page">
+        <button className="back" onClick={() => onOpen(null)}>
+          ← К списку
+        </button>
+        <div className="panel-head">
+          <div>
+            <div className="eyebrow">Статистика Avito</div>
+            <h1>Публикация #{metricId}</h1>
+          </div>
+        </div>
+        <div className="form-card">
+          <label>
+            Avito item ID
+            <input value={itemId} onChange={(e) => setItemId(e.target.value)} placeholder="числовой ID объявления" />
+          </label>
+          <button
+            className="primary"
+            disabled={busy || !itemId.trim()}
+            onClick={async () => {
+              try {
+                await api.patchCreative(projectId, metricId, { avito_item_id: itemId.trim() });
+                await onListReload();
+                await onRefresh();
+              } catch (e) {
+                onError(e.message);
+              }
+            }}
+          >
+            Сохранить ID и обновить
+          </button>
+        </div>
+        <div className="row-actions">
+          <button className="primary" disabled={busy} onClick={() => onRefresh()}>
+            Обновить
+          </button>
+          <span className="muted">
+            {snapshot?.fetched_at
+              ? `Снимок: ${new Date(snapshot.fetched_at).toLocaleString()}`
+              : snapshot?.message || "Ещё не обновляли"}
+          </span>
+        </div>
+        <pre className="stat-json">{JSON.stringify(snapshot?.payload || {}, null, 2)}</pre>
+      </section>
+    );
+  }
+
+  return (
+    <section className="stack-page">
+      <div className="panel-head">
+        <div>
+          <div className="eyebrow">Avito</div>
+          <h1>Метрики</h1>
+        </div>
+      </div>
+      <p className="lede">Выберите публикацию. Данные с Авито — только по «Обновить».</p>
+      <div className="rows">
+        {list.map((p) => (
+          <button key={p.creative_id} className="row-btn" onClick={() => onOpen(p.creative_id)}>
+            <div>
+              <strong>{p.title || `#${p.creative_id}`}</strong>
+              <div className="mono muted">
+                item {p.avito_item_id || "не задан"} · {p.has_snapshot ? "есть снимок" : "нет снимка"}
+              </div>
+            </div>
+            <span className="chev">›</span>
+          </button>
+        ))}
+        {!list.length && <div className="muted">Нет утверждённых публикаций.</div>}
       </div>
     </section>
   );
@@ -565,33 +880,13 @@ function DocsPanel() {
         </div>
       </div>
       <div className="doc-card">
-        <h3>Как работать</h3>
         <ol>
-          <li>Создайте проект в переключателе справа сверху.</li>
-          <li>В «Настройки» задайте модели и промпты только для этого проекта.</li>
-          <li>В чате отправьте задание или фото → утвердите креатив.</li>
+          <li>Создайте проект — в чате придёт «Давайте выполним настройку».</li>
+          <li>Опишите нишу; поля появятся в Настройках.</li>
+          <li>Соберите креатив → Утвердите → фид XML для Автозагрузки.</li>
+          <li>Метрики: выберите публикацию → «Обновить».</li>
         </ol>
-        <h3>Изоляция</h3>
-        <p>Чаты, память, модели и промпты хранятся по `project_id` и не пересекаются.</p>
-        <h3>Variables</h3>
-        <p className="mono">
-          ORCHESTRATOR_MODEL · VISION_MODEL · IMAGE_MODEL · OPENROUTER_API_KEY · PUBLIC_BASE_URL · TELEGRAM_BOT_TOKEN
-        </p>
       </div>
-    </section>
-  );
-}
-
-function Placeholder({ title, text }) {
-  return (
-    <section className="stack-page">
-      <div className="panel-head">
-        <div>
-          <div className="eyebrow">Скоро</div>
-          <h1>{title}</h1>
-        </div>
-      </div>
-      <p className="lede">{text}</p>
     </section>
   );
 }

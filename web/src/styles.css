@@ -286,25 +286,62 @@ h1 {
   padding-top: 0.35rem;
   border-top: 1px solid var(--line);
 }
+.balance {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-family: var(--mono);
+  white-space: nowrap;
+  max-width: 42vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .composer-row {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: 48px 1fr auto;
   gap: 0.45rem;
-  align-items: end;
+  align-items: center;
 }
 .attach {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   display: grid;
   place-items: center;
   border: 1px solid var(--line-strong);
   border-radius: 12px;
   background: var(--panel);
   cursor: pointer;
-  font-size: 1.2rem;
-  font-weight: 600;
+  color: var(--ink);
 }
-.send { min-width: 108px; }
+.composer-row textarea {
+  height: 48px;
+  min-height: 48px;
+  max-height: 48px;
+  resize: none;
+  padding: 0.7rem 0.85rem;
+  line-height: 1.25;
+}
+.send {
+  height: 48px;
+  min-width: 112px;
+  padding: 0 1rem;
+}
+.stat-json {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0.9rem;
+  overflow: auto;
+  max-height: 55vh;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0.85rem 1rem;
+}
+
 .check {
   display: flex;
   gap: 0.4rem;

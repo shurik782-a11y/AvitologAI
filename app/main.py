@@ -12,7 +12,16 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.db import init_db
-from app.routers import chat, metrics, projects, settings as settings_router, telegram
+from app.routers import (
+    avito_metrics,
+    billing,
+    chat,
+    metrics,
+    projects,
+    publications,
+    settings as settings_router,
+    telegram,
+)
 from app.services.telegram import setup_telegram
 
 logging.basicConfig(level=logging.INFO)
@@ -33,7 +42,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="AvitologAI", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="AvitologAI", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -44,9 +53,12 @@ app.add_middleware(
 )
 
 app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
+app.include_router(publications.router, prefix="/api/projects", tags=["publications"])
 app.include_router(chat.router, prefix="/api", tags=["chat"])
+app.include_router(avito_metrics.router, prefix="/api", tags=["avito-metrics"])
 app.include_router(settings_router.router, prefix="/api/settings", tags=["settings"])
 app.include_router(metrics.router, prefix="/api/metrics", tags=["metrics"])
+app.include_router(billing.router, prefix="/api/billing", tags=["billing"])
 app.include_router(telegram.router, prefix="/api", tags=["telegram"])
 
 static_dir = Path(__file__).resolve().parent.parent / "web" / "dist"

@@ -33,12 +33,22 @@ export const api = {
   approve: (pid, cid) =>
     request(`/api/projects/${pid}/creatives/${cid}/approve`, {
       method: "POST",
-      body: JSON.stringify({ note: "" }),
+      body: JSON.stringify({ note: "", trigger_upload: true }),
     }),
   getSettings: () => request("/api/settings"),
   saveSettings: (body) => request("/api/settings", { method: "PUT", body: JSON.stringify(body) }),
   getMetrics: (projectId) =>
     request(projectId ? `/api/metrics?project_id=${projectId}` : "/api/metrics"),
+  billing: () => request("/api/billing/summary"),
+  publications: (id) => request(`/api/projects/${id}/publications`),
+  publishRuns: (id) => request(`/api/projects/${id}/publish-runs`),
+  triggerPublish: (id) => request(`/api/projects/${id}/publish`, { method: "POST", body: "{}" }),
+  metricPublications: (id) => request(`/api/projects/${id}/metrics/publications`),
+  metricSnapshot: (pid, cid) => request(`/api/projects/${pid}/metrics/publications/${cid}`),
+  metricRefresh: (pid, cid) =>
+    request(`/api/projects/${pid}/metrics/publications/${cid}/refresh`, { method: "POST", body: "{}" }),
+  patchCreative: (pid, cid, body) =>
+    request(`/api/projects/${pid}/creatives/${cid}`, { method: "PATCH", body: JSON.stringify(body) }),
 };
 
 export function fileToDataUrl(file) {

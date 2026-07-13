@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.config import settings
 from app.db import AppSettings, Creative, Message, MetricEvent, Project
@@ -67,7 +68,6 @@ def _save_image_bytes(data: bytes, suffix: str = ".png") -> str:
 
 
 def _normalize_incoming_images(images: list[str]) -> list[str]:
-    """Keep data URLs; rewrite relative uploads to absolute file data URLs if small enough."""
     out: list[str] = []
     for img in images:
         if img.startswith("data:") or img.startswith("http://") or img.startswith("https://"):
@@ -90,7 +90,6 @@ async def run_orchestrator(
     *,
     user_text: str,
     images: list[str] | None = None,
-    generate_images: bool = True,
     revise_of_creative_id: int | None = None,
 ) -> tuple[Message, Message, Creative]:
     cfg = get_app_settings(db)
@@ -144,7 +143,7 @@ async def run_orchestrator(
     vision_notes = ""
     vision_images = _normalize_incoming_images(images)
     vision_model = (project.vision_model or cfg.vision_model or settings.vision_model).strip()
-    orch_model_default = (
+    orch_model = (
         project.orchestrator_model or cfg.orchestrator_model or settings.orchestrator_model
     ).strip()
     image_model = (project.image_model or cfg.image_model or settings.image_model).strip()
@@ -177,11 +176,16 @@ async def run_orchestrator(
             db.add(MetricEvent(project_id=project.id, name="vision.ok", value=1))
         except OpenRouterError as exc:
             vision_notes = f"(vision error: {exc})"
-            db.add(MetricEvent(project_id=project.id, name="vision.error", value=1, payload={"error": str(exc)}))
+            db.add(
+                MetricEvent(
+                    project_id=project.id,
+                    name="vision.error",
+                    value=1,
+                    payload={"error": str(exc)},
+                )
+            )
 
-    prev_creative = None
-    if revise_of_creative_id:
-        prev_creative = db.get(Creative, revise_of_creative_id)
+    prev_creative = db.get(Creative, revise_of_creative_id) if revise_of_creative_id else None
 
     instruction = (
         project.orchestrator_prompt
@@ -190,45 +194,42 @@ async def run_orchestrator(
     )
     system = (
         f"{instruction}\n\n{project_block}\n\n{mem_block}\n\n"
-        f"Анализ фото:\n{vision_notes or 'фото не переданы'}"
+        f"Анализ фото:\n{vision_notes or 'фото не переданы'}\n\n"
+        "need_images=true только если нужна генерация фото креатива; "
+        "false для правок текста или явного «без картинки»."
     )
     if prev_creative:
         system += (
-            f"\n\nПредыдущий черновик (нужно учесть правки пользователя):\n"
-            f"title={prev_creative.title}\ndescription={prev_creative.description}\n"
-            f"image_prompt={prev_creative.image_prompt}"
+            f"\n\nПредыдущий черновик:\ntitle={prev_creative.title}\n"
+            f"description={prev_creative.description}\nimage_prompt={prev_creative.image_prompt}"
         )
 
-    user_content: Any
     if vision_images:
-        user_content = build_vision_user_content(
+        user_content: Any = build_vision_user_content(
             user_text or "Сформируй креатив объявления по фото и настройкам проекта.",
             vision_images,
         )
-        orch_model = vision_model or orch_model_default
     else:
         user_content = user_text or "Сформируй креатив объявления по настройкам проекта."
-        orch_model = orch_model_default
 
-    messages = [{"role": "system", "content": system}, *history_msgs, {"role": "user", "content": user_content}]
+    messages = [
+        {"role": "system", "content": system},
+        *history_msgs,
+        {"role": "user", "content": user_content},
+    ]
     raw = await chat_completions(api_key, model=orch_model, messages=messages)
     assistant_text = (raw.get("choices") or [{}])[0].get("message", {}).get("content") or ""
     parsed = _parse_json_payload(assistant_text)
 
     image_paths: list[str] = []
-    need_images = bool(parsed.get("need_images", True)) and generate_images
+    need_images = bool(parsed.get("need_images", True))
     image_prompt = str(parsed.get("image_prompt") or "").strip()
     style = (project.image_style_prompt or "").strip()
     if style and image_prompt:
         image_prompt = f"{image_prompt}\n\nStyle: {style}"
     if need_images and image_prompt:
         try:
-            blobs = await generate_image(
-                api_key,
-                model=image_model,
-                prompt=image_prompt,
-                n=1,
-            )
+            blobs = await generate_image(api_key, model=image_model, prompt=image_prompt, n=1)
             for blob in blobs:
                 image_paths.append(_save_image_bytes(blob))
             db.add(MetricEvent(project_id=project.id, name="image.ok", value=float(len(image_paths))))
@@ -243,6 +244,10 @@ async def run_orchestrator(
             )
             parsed["analysis"] = (str(parsed.get("analysis") or "") + f"\n[image error] {exc}").strip()
 
+    price = ""
+    if isinstance(parsed.get("price"), (str, int, float)):
+        price = str(parsed.get("price"))
+
     creative = Creative(
         project_id=project.id,
         title=str(parsed.get("title") or "")[:300],
@@ -251,28 +256,28 @@ async def run_orchestrator(
         analysis=str(parsed.get("analysis") or vision_notes),
         images=[{"url": p} for p in image_paths],
         status="draft",
+        price=price,
+        publish_status="draft",
     )
     db.add(creative)
 
     pretty = (
         f"**{creative.title}**\n\n{creative.description}\n\n"
         f"_Анализ:_ {creative.analysis}\n"
-        f"_Промпт фото:_ {creative.image_prompt}"
+        f"_Промпт фото:_ {creative.image_prompt or '—'}"
     )
     assistant_msg = Message(
         project_id=project.id,
         role="assistant",
         content=pretty,
         attachments=creative.images,
-        meta={"creative_id": None},
+        meta={"need_images": need_images},
     )
     db.add(assistant_msg)
     db.add(MetricEvent(project_id=project.id, name="creative.created", value=1))
     db.commit()
     db.refresh(creative)
     db.refresh(assistant_msg)
-    from sqlalchemy.orm.attributes import flag_modified
-
     assistant_msg.meta = {**(assistant_msg.meta or {}), "creative_id": creative.id}
     flag_modified(assistant_msg, "meta")
     db.add(assistant_msg)

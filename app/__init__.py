@@ -1,4 +1,4 @@
-from app.db import AppSettings, Creative, Memory, Message, MetricEvent, Project
+from app.db import AppSettings, Creative, Memory, Message, MetricEvent, Project, PublishRun, AvitoStatSnapshot
 
 __all__ = [
     "AppSettings",
@@ -7,4 +7,6 @@ __all__ = [
     "Message",
     "MetricEvent",
     "Project",
+    "PublishRun",
+    "AvitoStatSnapshot",
 ]
