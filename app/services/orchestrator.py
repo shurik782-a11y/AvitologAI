@@ -30,6 +30,7 @@ from app.services.prompts import (
     project_slots_block,
 )
 from app.services.status_steps import emit_status, is_status_message
+from app.services.test_run import is_make_post_request, is_test_run, test_run_system_note
 
 
 def get_app_settings(db: Session) -> AppSettings:
@@ -289,6 +290,13 @@ async def run_orchestrator(
         "Один JSON-ответ. need_images=false для правок только текста. "
         f"Число image_briefs ориентируй на photo_count={project.photo_count or 1} (max {settings.photo_count_max})."
     )
+    if is_test_run(project):
+        system = test_run_system_note() + "\n\n" + system
+    if is_make_post_request(user_text):
+        system += (
+            "\n\nПользователь запросил пост/объявление — сгенерируй полный креатив по слотам проекта "
+            "(need_images=true, если не сказано «без фото»)."
+        )
     if prev_creative:
         prev_meta = prev_creative.meta or {}
         system += (

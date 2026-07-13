@@ -13,6 +13,7 @@ description: AvitologAI — Telegram WebApp for Avito creatives via OpenRouter, 
 | Onboarding (free model) | `app/services/onboarding.py`, `ONBOARDING_MODEL` |
 | Listing prompts (hidden) | `app/services/prompts.py` |
 | Competitors CSV/XLSX | `app/services/competitors.py`, `POST .../competitors/import` |
+| Test run | `app/services/test_run.py`, trigger «тестовый прогон» |
 | XML feed | `app/services/avito_feed.py`, feed endpoint on projects |
 | Autoload API | `app/services/avito_autoload.py` |
 | OpenRouter billing | `app/routers/billing.py` |
@@ -23,6 +24,7 @@ description: AvitologAI — Telegram WebApp for Avito creatives via OpenRouter, 
 
 - [references/orchestrator-json.md](references/orchestrator-json.md)
 - [references/onboarding.md](references/onboarding.md)
+- [references/test-run.md](references/test-run.md)
 - [references/autoload-xml.md](references/autoload-xml.md)
 - [references/avito-metrics.md](references/avito-metrics.md)
 
@@ -40,4 +42,9 @@ description: AvitologAI — Telegram WebApp for Avito creatives via OpenRouter, 
 
 **Creative:** Обрабатываю запрос → (revise…) → Формирую идею → Учитываю конкурентов → Даю задание → Собираю текст по структуре → Планирую фото → Редактирую референс / Генерирую фото → Формирую публикацию → delivery.
 
-**Approve:** Отправляю на публикацию → Готово….
+**Approve:** Отправляю на публикацию → Готово…. In test run: Эмулирую публикацию на Авито.
+
+## Agent guardrails
+
+- Orchestrator / Vision / Onboarding: no off-topic advice (models, Avito tariffs, CRM); stay on slots/JSON/facts.
+- Test run (`references/test-run.md`): emulate Avito; real creatives + memory; no real Autoload API.

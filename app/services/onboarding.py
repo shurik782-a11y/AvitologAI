@@ -13,6 +13,7 @@ from app.db import AppSettings, Message, MetricEvent, Project
 from app.services.openrouter import OpenRouterError, chat_completions
 from app.services.prompts import ONBOARDING_SEED, ONBOARDING_SYSTEM
 from app.services.status_steps import emit_status
+from app.services.test_run import is_test_run
 
 __all__ = ["ONBOARDING_SEED", "run_onboarding"]
 
@@ -151,6 +152,11 @@ async def run_onboarding(
     out.append(emit_status(db, project.id, "Выделяю основные критерии", "criteria"))
 
     try:
+        test_ctx = (
+            "ТЕСТОВЫЙ ПРОГОН: да. Не спрашивай Client ID/фид/кабинет Авито.\n"
+            if is_test_run(project)
+            else ""
+        )
         raw = await chat_completions(
             api_key,
             model=model,
@@ -159,6 +165,7 @@ async def run_onboarding(
                 {
                     "role": "user",
                     "content": (
+                        f"{test_ctx}"
                         f"Раунд {round_idx}/{settings.onboarding_max_rounds}.\n"
                         f"Уже заполнено:\n{_slots_snapshot(project)}\n"
                         f"Референс-фото: {'получены' if extra.get('reference_received') else 'ещё нет'}.\n\n"

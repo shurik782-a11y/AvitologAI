@@ -9,7 +9,9 @@ Telegram Mini App + FastAPI for Avito creatives via OpenRouter. Repo: `https://g
 - **Built-in listing methodology + agent instructions** live in `app/services/prompts.py` and are always applied at runtime. They must **never** be shown or edited in the Mini App UI. Settings fields are project overlays / slots from знакомство only.
 - Creative: single LLM pass → structured sections + N image_briefs (cap 5); prefer img2img edit when refs exist; text-only revisions skip vision/images.
 - Image generation: orchestrator sets `need_images` from the user request — no UI checkbox.
-- Approve creative → rebuild project XML feed; optional Autoload `upload` if Avito API keys exist.
+- Approve creative → rebuild project XML feed; optional Autoload `upload` if Avito API keys exist. In **тестовый прогон** — emulated publish only (no Autoload API); memory/revisions still real.
+- Message starting with «тестовый прогон» enables test mode (demo Avito fields + emulate approve). Then onboarding / «сделай пост» as usual.
+- Agents must not derail: no unsolicited advice about models, Avito tariffs, CRM; orchestrator answers with creative JSON only.
 - Avito metrics: fetch **only** on user «Обновить»; otherwise show last snapshot.
 - After code changes: commit + push to `origin/main` (unless user forbids). Never commit `.env` secrets.
 

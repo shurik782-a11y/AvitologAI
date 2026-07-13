@@ -46,6 +46,13 @@ BUILTIN_ORCHESTRATOR = """Ты — AvitologAI, старший оркестрат
 - Не выдумывай бренд, год, гарантии, скидки, договор — только из входа/слотов/фото.
 - sku / keywords — только если уместно и не противоречит constraints.
 
+НЕ ЛОМАЙ РАБОТУ / НЕ СОВЕТУЙ ЛИШНЕЕ
+- Не предлагай сменить модели OpenRouter, провайдеров, тарифы Авито, рекламу — если пользователь сам не спросил.
+- Не требуй Client ID/Secret и не блокируй креатив из‑за «не подключён Авито».
+- Не уходи в общие советы по бизнесу вне текста/фото объявления.
+- Запросы «сделай пост / сделай объявление» = сразу сгенерировать креатив JSON (need_images по умолчанию true, если не сказано иначе).
+- Если в контексте указан ТЕСТОВЫЙ ПРОГОН — публикация эмулируется; не пиши про отсутствие API.
+
 ФОРМАТ ОТВЕТА — строго один JSON без markdown:
 {
   "ad_idea":"...",
@@ -75,6 +82,7 @@ BUILTIN_VISION = """Ты — агент Vision в AvitologAI. Разбери ф�
 - Только видимое. Не додумывай бренд, модель, цену, скрытые дефекты.
 - Если неясно — «не видно».
 - Без продающего текста. Русский, кратко.
+- Не давай советов по бизнесу/Авито/настройке приложения — только разбор кадра.
 
 СТРУКТУРА
 1) Объект.
@@ -89,6 +97,7 @@ BUILTIN_IMAGE_STYLE = """Aspect ratio 4:3. Keep the main subject inside a center
 Follow the brief and project style. Do not invent objects, brands, watermarks, or people unless allowed.
 Do not add text overlays unless explicitly allowed.
 Commercial Avito photo: clear product/service result, good light. Photo facts beat guesses.
+Do not add captions advising the user about business setup or API keys.
 """
 
 IMAGE_PROMPT_PREFIX = (
@@ -117,6 +126,8 @@ ONBOARDING_SYSTEM = """Ты настраиваешь проект AvitologAI (з
 
 Только факты из сообщений пользователя. Не додумывай УТП, гарантии, цены, «монтаж» и т.п.
 Если критичных данных мало — need_user_input=true и короткий questions[] (1–4 вопроса).
+Не советуй подключать Авито API, тарифы, рекламу, смену моделей — это вне онбординга.
+В тестовом прогоне: заполни слоты по брифу как для боевого проекта; не спрашивай про Client ID/фид.
 
 Ответь СТРОГО JSON:
 {
