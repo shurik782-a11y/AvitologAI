@@ -53,6 +53,15 @@ button.primary:hover:not(:disabled) {
   box-shadow: 0 0 28px rgba(255, 106, 26, 0.5);
   transform: translateY(-1px);
 }
+button.danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border-color: rgba(255, 107, 107, 0.35);
+  font-weight: 700;
+}
+button.danger:hover:not(:disabled) {
+  box-shadow: 0 0 16px rgba(255, 107, 107, 0.2);
+}
 input, textarea {
   width: 100%;
   border: 1px solid var(--line-strong);
@@ -158,6 +167,36 @@ input:focus, textarea:focus {
 }
 .picker-item:hover, .picker-item.active { background: var(--accent-soft); }
 .picker-item.new { font-weight: 700; color: var(--accent); }
+.picker-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.15rem;
+  border-radius: 10px;
+}
+.picker-row:hover,
+.picker-row.active { background: var(--accent-soft); }
+.picker-row .picker-item {
+  padding-right: 0.35rem;
+}
+.picker-row .picker-item:hover { background: transparent; box-shadow: none; }
+.picker-delete {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 8px;
+}
+.picker-delete:hover {
+  color: var(--danger);
+  background: var(--danger-bg);
+  box-shadow: none;
+  border-color: transparent;
+}
 .picker-sep { height: 1px; background: var(--line); margin: 0.25rem 0.35rem; }
 .picker-empty { padding: 0.75rem; color: var(--muted); font-size: 0.9rem; }
 

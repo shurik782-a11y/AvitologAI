@@ -63,6 +63,20 @@ function PaperclipIcon() {
   );
 }
 
+function TrashIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m2 0v12a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7h12ZM10 11v6M14 11v6"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export default function App() {
   const [access, setAccess] = useState("loading");
   const [accessError, setAccessError] = useState("");
@@ -80,6 +94,7 @@ export default function App() {
   const [photos, setPhotos] = useState([]);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [navOpen, setNavOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [pubs, setPubs] = useState([]);
@@ -180,6 +195,29 @@ export default function App() {
       setNewOpen(false);
       await refreshProjects();
       await selectProject(p.id);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmDeleteProject() {
+    if (!deleteTarget) return;
+    const doomed = deleteTarget;
+    setBusy(true);
+    try {
+      await api.deleteProject(doomed.id);
+      setDeleteTarget(null);
+      setPickerOpen(false);
+      const list = await refreshProjects();
+      if (projectId === doomed.id) {
+        setProjectId(null);
+        setMessages([]);
+        setCreative(null);
+        setSection("chat");
+        if (list.length) await selectProject(list[0].id);
+      }
     } catch (e) {
       setError(e.message);
     } finally {
@@ -393,13 +431,24 @@ export default function App() {
               </button>
               <div className="picker-sep" />
               {projects.map((p) => (
-                <button
-                  key={p.id}
-                  className={`picker-item ${p.id === projectId ? "active" : ""}`}
-                  onClick={() => selectProject(p.id)}
-                >
-                  {p.name}
-                </button>
+                <div key={p.id} className={`picker-row ${p.id === projectId ? "active" : ""}`}>
+                  <button type="button" className="picker-item" onClick={() => selectProject(p.id)}>
+                    {p.name}
+                  </button>
+                  <button
+                    type="button"
+                    className="picker-delete"
+                    title="Удалить проект"
+                    aria-label={`Удалить ${p.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPickerOpen(false);
+                      setDeleteTarget(p);
+                    }}
+                  >
+                    <TrashIcon />
+                  </button>
+                </div>
               ))}
               {!projects.length && <div className="picker-empty">Пока нет проектов</div>}
             </div>
@@ -527,6 +576,26 @@ export default function App() {
               <button onClick={() => setNewOpen(false)}>Отмена</button>
               <button className="primary" disabled={!newName.trim() || busy} onClick={createProject}>
                 Создать
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="modal-scrim" onClick={() => !busy && setDeleteTarget(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Удалить проект?</h2>
+            <p>
+              Вы точно хотите удалить проект <strong>{deleteTarget.name}</strong>?
+            </p>
+            <p className="muted">Чат, настройки и публикации проекта будут удалены безвозвратно.</p>
+            <div className="modal-actions">
+              <button disabled={busy} onClick={() => setDeleteTarget(null)}>
+                Нет
+              </button>
+              <button className="danger" disabled={busy} onClick={confirmDeleteProject}>
+                Да
               </button>
             </div>
           </div>
