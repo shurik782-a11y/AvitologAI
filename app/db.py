@@ -221,7 +221,8 @@ CREATIVE_COLUMNS: dict[str, str] = {
     "avito_item_id": "VARCHAR(64) DEFAULT ''",
     "publish_status": "VARCHAR(64) DEFAULT ''",
     "last_feed_error": "TEXT DEFAULT ''",
-    "published_at": "DATETIME",
+    # Postgres: TIMESTAMP WITH TIME ZONE; SQLite accepts the same type name
+    "published_at": "TIMESTAMP WITH TIME ZONE",
 }
 
 
