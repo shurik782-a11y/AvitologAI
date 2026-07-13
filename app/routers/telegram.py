@@ -20,8 +20,7 @@ async def telegram_webhook(
 ) -> dict[str, bool]:
     if not settings.telegram_bot_token:
         raise HTTPException(503, "Bot not configured")
-    # Optional shared secret if user sets TELEGRAM_WEBHOOK_SECRET later
-    secret = getattr(settings, "telegram_webhook_secret", "") or ""
+    secret = settings.telegram_webhook_secret
     if secret and x_telegram_bot_api_secret_token != secret:
         raise HTTPException(403, "Bad secret")
     try:
