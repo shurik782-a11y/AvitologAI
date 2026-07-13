@@ -7,6 +7,7 @@ from typing import Any, Generator
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -55,6 +56,20 @@ class Project(Base):
     orchestrator_prompt: Mapped[str] = mapped_column(Text, default="")
     vision_prompt: Mapped[str] = mapped_column(Text, default="")
     image_style_prompt: Mapped[str] = mapped_column(Text, default="")
+    # Listing methodology slots (filled at onboarding; empty = unused)
+    listing_type: Mapped[str] = mapped_column(String(32), default="")
+    advantages: Mapped[str] = mapped_column(Text, default="")
+    buyer_pains: Mapped[str] = mapped_column(Text, default="")
+    why_here: Mapped[str] = mapped_column(Text, default="")
+    ad_idea: Mapped[str] = mapped_column(Text, default="")
+    search_query: Mapped[str] = mapped_column(String(200), default="")
+    conversion_offer: Mapped[str] = mapped_column(String(200), default="")
+    company_info: Mapped[str] = mapped_column(Text, default="")
+    photo_count: Mapped[int] = mapped_column(Integer, default=1)
+    allow_people: Mapped[bool] = mapped_column(Boolean, default=False)
+    allow_text_overlays: Mapped[bool] = mapped_column(Boolean, default=False)
+    competitor_insights: Mapped[str] = mapped_column(Text, default="")
+    visual_style_notes: Mapped[str] = mapped_column(Text, default="")
     onboarding_status: Mapped[str] = mapped_column(String(32), default="awaiting_brief")
     avito_feed_token: Mapped[str] = mapped_column(String(64), default="")
     avito_category: Mapped[str] = mapped_column(String(200), default="")
@@ -135,6 +150,7 @@ class Creative(Base):
     last_feed_error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    meta: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
     project: Mapped[Project] = relationship(back_populates="creatives")
     snapshots: Mapped[list[AvitoStatSnapshot]] = relationship(
@@ -213,6 +229,19 @@ PROJECT_COLUMNS: dict[str, str] = {
     "avito_client_id": "VARCHAR(200) DEFAULT ''",
     "avito_client_secret": "TEXT DEFAULT ''",
     "avito_user_id": "VARCHAR(64) DEFAULT ''",
+    "listing_type": "VARCHAR(32) DEFAULT ''",
+    "advantages": "TEXT DEFAULT ''",
+    "buyer_pains": "TEXT DEFAULT ''",
+    "why_here": "TEXT DEFAULT ''",
+    "ad_idea": "TEXT DEFAULT ''",
+    "search_query": "VARCHAR(200) DEFAULT ''",
+    "conversion_offer": "VARCHAR(200) DEFAULT ''",
+    "company_info": "TEXT DEFAULT ''",
+    "photo_count": "INTEGER DEFAULT 1",
+    "allow_people": "BOOLEAN DEFAULT FALSE",
+    "allow_text_overlays": "BOOLEAN DEFAULT FALSE",
+    "competitor_insights": "TEXT DEFAULT ''",
+    "visual_style_notes": "TEXT DEFAULT ''",
 }
 
 CREATIVE_COLUMNS: dict[str, str] = {
@@ -223,6 +252,7 @@ CREATIVE_COLUMNS: dict[str, str] = {
     "last_feed_error": "TEXT DEFAULT ''",
     # Postgres: TIMESTAMP WITH TIME ZONE; SQLite accepts the same type name
     "published_at": "TIMESTAMP WITH TIME ZONE",
+    "meta": "JSON",
 }
 
 

@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     # Built-in agent instructions live in app.services.prompts (never shown in UI).
     # Kept for backward-compatible seeding of AppSettings; runtime ignores legacy defaults.
     default_orchestrator_instruction: str = ""
+    # Onboarding / competitor compress — always free OpenRouter pool
+    onboarding_model: str = "openrouter/free"
+    onboarding_max_rounds: int = 4
+    photo_count_max: int = 5
+    photo_count_default: int = 1
 
     @property
     def db_url(self) -> str:

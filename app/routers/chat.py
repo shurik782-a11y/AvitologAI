@@ -50,12 +50,14 @@ async def chat(project_id: int, body: ChatRequest, db: Session = Depends(get_db)
         raise HTTPException(404, "Project not found")
     try:
         if (project.onboarding_status or "") == "awaiting_brief":
-            user_msg, assistant_msgs = await run_onboarding(db, project, body.content)
+            user_msg, assistant_msgs, done = await run_onboarding(
+                db, project, body.content, images=body.images
+            )
             return ChatResponse(
                 messages=[MessageOut.model_validate(user_msg)]
                 + [MessageOut.model_validate(m) for m in assistant_msgs],
                 creative=None,
-                onboarding_done=True,
+                onboarding_done=done,
             )
         user_msg, assistant_msgs, creative = await run_orchestrator(
             db,

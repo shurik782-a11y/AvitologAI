@@ -10,7 +10,9 @@ description: AvitologAI — Telegram WebApp for Avito creatives via OpenRouter, 
 | Task | Where |
 |------|--------|
 | Creative / chat | `app/services/orchestrator.py`, `app/routers/chat.py` |
-| Onboarding | `app/services/onboarding.py` |
+| Onboarding (free model) | `app/services/onboarding.py`, `ONBOARDING_MODEL` |
+| Listing prompts (hidden) | `app/services/prompts.py` |
+| Competitors CSV/XLSX | `app/services/competitors.py`, `POST .../competitors/import` |
 | XML feed | `app/services/avito_feed.py`, feed endpoint on projects |
 | Autoload API | `app/services/avito_autoload.py` |
 | OpenRouter billing | `app/routers/billing.py` |
@@ -34,8 +36,8 @@ description: AvitologAI — Telegram WebApp for Avito creatives via OpenRouter, 
 
 ## Status steps (chat)
 
-**Onboarding:** Выделяю основные критерии → Фиксирую идею → Устанавливаю ограничения → Прописываю промпты → summary.
+**Onboarding:** Выделяю основные критерии → Фиксирую идею → Уточняю боли → Прошу референс → (конкуренты) → Прописываю промпты → summary. Model: free only.
 
-**Creative:** Обрабатываю запрос → (revise: Фиксирую ошибку (общая|только этот проект) + Выполняю правки) → Даю задание на генерацию → Делегирую создание текста → optional image → Формирую публикацию → delivery.
+**Creative:** Обрабатываю запрос → (revise…) → Формирую идею → Учитываю конкурентов → Даю задание → Собираю текст по структуре → Планирую фото → Редактирую референс / Генерирую фото → Формирую публикацию → delivery.
 
 **Approve:** Отправляю на публикацию → Готово….

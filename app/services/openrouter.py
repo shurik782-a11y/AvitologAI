@@ -95,6 +95,78 @@ async def generate_image(
         return _extract_images_from_chat(chat.json())
 
 
+async def edit_image(
+    api_key: str,
+    *,
+    model: str,
+    prompt: str,
+    source_image: str,
+) -> list[bytes]:
+    """Edit/reference image via OpenRouter; falls back to generate_image on failure.
+
+    source_image: data URL or https URL.
+    """
+    if not api_key:
+        raise OpenRouterError("OpenRouter API key не задан.")
+    async with httpx.AsyncClient(timeout=180.0) as client:
+        # Try images API with image input (providers vary)
+        payload: dict[str, Any] = {
+            "model": model,
+            "prompt": prompt,
+            "n": 1,
+            "output_format": "png",
+            "image": source_image,
+        }
+        resp = await client.post(
+            f"{settings.openrouter_base_url}/images",
+            headers=_headers(api_key),
+            json=payload,
+        )
+        if resp.status_code < 400:
+            data = resp.json()
+            out: list[bytes] = []
+            for item in data.get("data") or []:
+                b64 = item.get("b64_json") or item.get("b64")
+                if b64:
+                    out.append(base64.b64decode(b64))
+                elif item.get("url") and str(item["url"]).startswith("data:"):
+                    out.append(_data_url_to_bytes(item["url"]))
+            if out:
+                return out
+
+        # Multimodal chat edit
+        chat = await client.post(
+            f"{settings.openrouter_base_url}/chat/completions",
+            headers=_headers(api_key),
+            json={
+                "model": model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": (
+                                    "Edit this reference photo for an Avito listing. "
+                                    "Keep the real product/object; apply only the brief.\n" + prompt
+                                ),
+                            },
+                            {"type": "image_url", "image_url": {"url": source_image}},
+                        ],
+                    }
+                ],
+                "modalities": ["image", "text"],
+            },
+        )
+        if chat.status_code < 400:
+            extracted = _extract_images_from_chat(chat.json())
+            if extracted:
+                return extracted
+
+    # Last resort: text-to-image without edit
+    return await generate_image(api_key, model=model, prompt=prompt, n=1)
+
+
 def _data_url_to_bytes(url: str) -> bytes:
     m = re.match(r"data:image/[^;]+;base64,(.+)", url, re.DOTALL)
     if not m:

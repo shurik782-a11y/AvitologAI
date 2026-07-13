@@ -7,6 +7,23 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+LISTING_SLOT_KEYS = (
+    "listing_type",
+    "advantages",
+    "buyer_pains",
+    "why_here",
+    "ad_idea",
+    "search_query",
+    "conversion_offer",
+    "company_info",
+    "photo_count",
+    "allow_people",
+    "allow_text_overlays",
+    "competitor_insights",
+    "visual_style_notes",
+)
+
+
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     theme: str = ""
@@ -18,6 +35,19 @@ class ProjectCreate(BaseModel):
     orchestrator_prompt: str = ""
     vision_prompt: str = ""
     image_style_prompt: str = ""
+    listing_type: str = ""
+    advantages: str = ""
+    buyer_pains: str = ""
+    why_here: str = ""
+    ad_idea: str = ""
+    search_query: str = ""
+    conversion_offer: str = ""
+    company_info: str = ""
+    photo_count: int = 1
+    allow_people: bool = False
+    allow_text_overlays: bool = False
+    competitor_insights: str = ""
+    visual_style_notes: str = ""
     avito_category: str = ""
     avito_address: str = ""
     avito_contact_phone: str = ""
@@ -38,6 +68,19 @@ class ProjectUpdate(BaseModel):
     orchestrator_prompt: str | None = None
     vision_prompt: str | None = None
     image_style_prompt: str | None = None
+    listing_type: str | None = None
+    advantages: str | None = None
+    buyer_pains: str | None = None
+    why_here: str | None = None
+    ad_idea: str | None = None
+    search_query: str | None = None
+    conversion_offer: str | None = None
+    company_info: str | None = None
+    photo_count: int | None = None
+    allow_people: bool | None = None
+    allow_text_overlays: bool | None = None
+    competitor_insights: str | None = None
+    visual_style_notes: str | None = None
     avito_category: str | None = None
     avito_address: str | None = None
     avito_contact_phone: str | None = None
@@ -59,6 +102,19 @@ class ProjectOut(BaseModel):
     orchestrator_prompt: str = ""
     vision_prompt: str = ""
     image_style_prompt: str = ""
+    listing_type: str = ""
+    advantages: str = ""
+    buyer_pains: str = ""
+    why_here: str = ""
+    ad_idea: str = ""
+    search_query: str = ""
+    conversion_offer: str = ""
+    company_info: str = ""
+    photo_count: int = 1
+    allow_people: bool = False
+    allow_text_overlays: bool = False
+    competitor_insights: str = ""
+    visual_style_notes: str = ""
     onboarding_status: str = "awaiting_brief"
     avito_feed_token: str = ""
     avito_category: str = ""
@@ -125,6 +181,7 @@ class CreativeOut(BaseModel):
     avito_item_id: str = ""
     publish_status: str = ""
     last_feed_error: str = ""
+    meta: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     published_at: datetime | None = None
 
@@ -193,10 +250,10 @@ class PublishRunOut(BaseModel):
 class PublicationMetricOut(BaseModel):
     creative_id: int
     title: str
-    avito_item_id: str
-    avito_ad_id: str
-    publish_status: str
-    status: str
+    avito_item_id: str = ""
+    avito_ad_id: str = ""
+    publish_status: str = ""
+    status: str = ""
     published_at: datetime | None = None
     fetched_at: datetime | None = None
     has_snapshot: bool = False
@@ -204,7 +261,14 @@ class PublicationMetricOut(BaseModel):
 
 class StatSnapshotOut(BaseModel):
     creative_id: int
-    avito_item_id: str
-    payload: dict[str, Any]
+    avito_item_id: str = ""
+    payload: dict[str, Any] = Field(default_factory=dict)
     fetched_at: datetime | None = None
+    message: str = ""
+
+
+class CompetitorsImportResult(BaseModel):
+    rows_read: int
+    rows_used: int
+    competitor_insights: str
     message: str = ""

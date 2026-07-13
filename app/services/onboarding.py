@@ -1,4 +1,4 @@
-"""Onboarding: first chat setup → project fields with explicit status steps."""
+"""Onboarding: multi-turn setup on free OpenRouter model → project slots."""
 from __future__ import annotations
 
 import json
@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.config import settings
 from app.db import AppSettings, Message, MetricEvent, Project
@@ -13,7 +14,6 @@ from app.services.openrouter import OpenRouterError, chat_completions
 from app.services.prompts import ONBOARDING_SEED, ONBOARDING_SYSTEM
 from app.services.status_steps import emit_status
 
-# Re-export for projects router seed message
 __all__ = ["ONBOARDING_SEED", "run_onboarding"]
 
 
@@ -37,30 +37,111 @@ def _parse_json(text: str) -> dict[str, Any]:
         except json.JSONDecodeError:
             pass
     return {
-        "theme": text[:500],
-        "ideas": "",
-        "constraints": "",
-        "orchestrator_prompt": "",
-        "vision_prompt": "",
-        "image_style_prompt": "",
+        "need_user_input": True,
+        "questions": ["Уточните нишу, идею объявления и сколько фото нужно (1–5)."],
+        "assistant_message": "Нужны уточнения по настройке проекта.",
+        "done": False,
     }
 
 
+def _apply_slots(project: Project, data: dict[str, Any]) -> None:
+    str_fields = (
+        "theme",
+        "ideas",
+        "constraints",
+        "listing_type",
+        "advantages",
+        "buyer_pains",
+        "why_here",
+        "ad_idea",
+        "search_query",
+        "conversion_offer",
+        "company_info",
+        "orchestrator_prompt",
+        "vision_prompt",
+        "image_style_prompt",
+    )
+    for key in str_fields:
+        val = data.get(key)
+        if val is None:
+            continue
+        s = str(val).strip()
+        if s:
+            setattr(project, key, s)
+
+    if data.get("photo_count") is not None:
+        try:
+            n = int(data.get("photo_count"))
+            project.photo_count = max(1, min(n, settings.photo_count_max))
+        except (TypeError, ValueError):
+            pass
+    if "allow_people" in data and data["allow_people"] is not None:
+        project.allow_people = bool(data["allow_people"])
+    if "allow_text_overlays" in data and data["allow_text_overlays"] is not None:
+        project.allow_text_overlays = bool(data["allow_text_overlays"])
+
+
+def _slots_snapshot(project: Project) -> str:
+    return (
+        f"listing_type={project.listing_type or '—'}\n"
+        f"ad_idea={project.ad_idea or '—'}\n"
+        f"search_query={project.search_query or '—'}\n"
+        f"conversion_offer={project.conversion_offer or '—'}\n"
+        f"advantages={project.advantages or '—'}\n"
+        f"buyer_pains={project.buyer_pains or '—'}\n"
+        f"why_here={project.why_here or '—'}\n"
+        f"photo_count={project.photo_count or 1}\n"
+        f"allow_people={bool(project.allow_people)}\n"
+        f"theme={project.theme or '—'}\n"
+        f"constraints={project.constraints or '—'}\n"
+        f"competitor_insights={'да' if project.competitor_insights else 'нет'}\n"
+    )
+
+
+def _is_complete(project: Project, data: dict[str, Any], round_idx: int) -> bool:
+    if data.get("done") is True and (project.ad_idea or project.theme):
+        return True
+    if round_idx >= settings.onboarding_max_rounds:
+        return bool(project.ad_idea or project.theme or project.ideas)
+    has_idea = bool(project.ad_idea or project.ideas)
+    has_type = bool(project.listing_type or project.theme)
+    has_photos = int(project.photo_count or 0) >= 1
+    if data.get("need_user_input") and round_idx < settings.onboarding_max_rounds:
+        return False
+    return has_idea and has_type and has_photos
+
+
 async def run_onboarding(
-    db: Session, project: Project, user_text: str
-) -> tuple[Message, list[Message]]:
-    """Returns user message and all new assistant messages (statuses + summary)."""
+    db: Session,
+    project: Project,
+    user_text: str,
+    images: list[str] | None = None,
+) -> tuple[Message, list[Message], bool]:
+    """Returns user message, assistant messages, onboarding_done flag."""
     cfg = db.get(AppSettings, 1)
     assert cfg is not None
     api_key = cfg.openrouter_api_key or settings.openrouter_api_key
-    model = (project.orchestrator_model or cfg.orchestrator_model or settings.orchestrator_model).strip()
+    model = (settings.onboarding_model or "openrouter/free").strip()
+    images = images or []
+
+    extra = dict(project.extra or {})
+    round_idx = int(extra.get("onboarding_round") or 0) + 1
+    extra["onboarding_round"] = round_idx
+    if images:
+        refs = list(extra.get("reference_images") or [])
+        for u in images[:8]:
+            refs.append(u[:500] if isinstance(u, str) else str(u)[:500])
+        extra["reference_images"] = refs[-12:]
+        extra["reference_received"] = True
+    project.extra = extra
+    flag_modified(project, "extra")
 
     user_msg = Message(
         project_id=project.id,
         role="user",
         content=user_text,
-        attachments=[],
-        meta={"onboarding": True},
+        attachments=[{"type": "image", "url": (u[:120] + "…") if len(u) > 120 else u} for u in images],
+        meta={"onboarding": True, "round": round_idx},
     )
     db.add(user_msg)
     db.commit()
@@ -75,21 +156,28 @@ async def run_onboarding(
             model=model,
             messages=[
                 {"role": "system", "content": ONBOARDING_SYSTEM},
-                {"role": "user", "content": user_text or "Настрой проект по умолчанию для товаров на Авито."},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Раунд {round_idx}/{settings.onboarding_max_rounds}.\n"
+                        f"Уже заполнено:\n{_slots_snapshot(project)}\n"
+                        f"Референс-фото: {'получены' if extra.get('reference_received') else 'ещё нет'}.\n\n"
+                        f"Сообщение пользователя:\n{user_text or '(пусто)'}"
+                    ),
+                },
             ],
             temperature=0.2,
-            max_tokens=2000,
+            max_tokens=1800,
         )
         content = (raw.get("choices") or [{}])[0].get("message", {}).get("content") or ""
         data = _parse_json(content)
     except OpenRouterError as exc:
         data = {
-            "theme": user_text[:500],
-            "ideas": "",
-            "constraints": "",
-            "orchestrator_prompt": "",
-            "vision_prompt": "",
-            "image_style_prompt": "",
+            "need_user_input": True,
+            "questions": ["Повторите описание ниши и идеи объявления."],
+            "assistant_message": f"Не удалось разобрать ответ модели ({exc}). Напишите ещё раз кратко.",
+            "done": False,
+            "theme": user_text[:500] if user_text else "",
         }
         db.add(
             MetricEvent(
@@ -100,71 +188,95 @@ async def run_onboarding(
             )
         )
 
-    theme = str(data.get("theme") or "").strip()
-    ideas = str(data.get("ideas") or "").strip()
-    constraints = str(data.get("constraints") or "").strip()
-    orch = str(data.get("orchestrator_prompt") or "").strip()
-    vision = str(data.get("vision_prompt") or "").strip()
-    style = str(data.get("image_style_prompt") or "").strip()
+    _apply_slots(project, data)
 
-    out.append(
-        emit_status(
-            db,
-            project.id,
-            f"Фиксирую идею: {ideas or theme or 'по вашему описанию'}"[:400],
-            "idea",
+    if data.get("ad_idea") or project.ad_idea:
+        out.append(
+            emit_status(
+                db,
+                project.id,
+                f"Фиксирую идею: {(project.ad_idea or '')[:200]}",
+                "idea",
+            )
         )
-    )
-    if theme:
-        project.theme = theme
-    if ideas:
-        project.ideas = ideas
-
-    out.append(
-        emit_status(
-            db,
-            project.id,
-            f"Устанавливаю ограничения: {constraints or 'без жёстких ограничений'}"[:400],
-            "constraints",
+    if data.get("buyer_pains") or data.get("constraints"):
+        out.append(
+            emit_status(
+                db,
+                project.id,
+                f"Уточняю боли/ограничения: {(project.buyer_pains or project.constraints or '')[:200]}",
+                "constraints",
+            )
         )
-    )
-    if constraints:
-        project.constraints = constraints
+    if not extra.get("reference_received"):
+        out.append(emit_status(db, project.id, "Прошу референс-фото (скрепка)", "refs"))
+    if project.competitor_insights:
+        out.append(emit_status(db, project.id, "Учитываю insights конкурентов", "competitors"))
 
-    out.append(emit_status(db, project.id, "Прописываю промпты", "prompts"))
-    # Project overlays only — built-in agent instructions stay in code, never in these fields
-    if orch:
-        project.orchestrator_prompt = orch
-    if vision:
-        project.vision_prompt = vision
-    if style:
-        project.image_style_prompt = style
+    out.append(emit_status(db, project.id, "Прописываю промпты и слоты", "prompts"))
 
-    project.onboarding_status = "done"
-    db.add(project)
+    done = _is_complete(project, data, round_idx)
+    # Soft ask for refs but don't block forever
+    if done and not extra.get("reference_received") and round_idx < settings.onboarding_max_rounds:
+        if data.get("need_user_input") or not user_text.lower().startswith(("без фото", "без референс", "пропусти")):
+            # Allow finish if user said skip; else one more nudge only when model asks
+            pass
 
-    summary = (
-        "Настройка завершена. Записал:\n"
-        f"• Тема: {project.theme or '—'}\n"
-        f"• Идеи: {project.ideas or '—'}\n"
-        f"• Ограничения: {project.constraints or '—'}\n"
-        f"• Доп. промпт оркестратора: {'да' if project.orchestrator_prompt else '—'}\n"
-        f"• Доп. Vision: {'да' if project.vision_prompt else '—'}\n"
-        f"• Стиль фото: {'да' if project.image_style_prompt else '—'}\n\n"
-        "Их можно править в Настройках. Базовые инструкции агентов уже встроены в систему. "
-        "Можно переходить к креативу."
-    )
+    assistant_text = str(data.get("assistant_message") or "").strip()
+    questions = data.get("questions") if isinstance(data.get("questions"), list) else []
+
+    if done:
+        project.onboarding_status = "done"
+        summary = (
+            "Настройка завершена. Записал:\n"
+            f"• Тип: {project.listing_type or '—'}\n"
+            f"• Идея объявления: {project.ad_idea or '—'}\n"
+            f"• Заголовок: {(project.search_query or '').strip()} {(project.conversion_offer or '').strip()}\n"
+            f"• Боли: {project.buyer_pains or '—'}\n"
+            f"• Фото: {project.photo_count or 1} "
+            f"(люди: {'да' if project.allow_people else 'нет'}, "
+            f"текст на фото: {'да' if project.allow_text_overlays else 'нет'})\n"
+            f"• Референсы: {'есть' if extra.get('reference_received') else 'нет'}\n"
+            f"• Конкуренты: {'insights есть' if project.competitor_insights else 'можно импортировать CSV/XLSX в Настройках'}\n\n"
+            "Правки — в Настройках или напишите оркестратору. Можно переходить к креативу."
+        )
+        if assistant_text:
+            summary = assistant_text + "\n\n" + summary
+        assistant = Message(
+            project_id=project.id,
+            role="assistant",
+            content=summary,
+            attachments=[],
+            meta={"onboarding": True, "onboarding_done": True},
+        )
+        db.add(assistant)
+        db.add(MetricEvent(project_id=project.id, name="onboarding.done", value=1))
+        db.add(project)
+        db.commit()
+        db.refresh(assistant)
+        out.append(assistant)
+        return user_msg, out, True
+
+    # Continue onboarding
+    project.onboarding_status = "awaiting_brief"
+    q_lines = "\n".join(f"• {q}" for q in questions if str(q).strip())
+    body = assistant_text or "Нужны уточнения для настройки проекта."
+    if q_lines:
+        body += "\n\n" + q_lines
+    if not extra.get("reference_received"):
+        body += "\n\nЕсли есть — пришлите референс-фото товара/объекта (скрепка)."
+    body += f"\n\n_Раунд {round_idx}/{settings.onboarding_max_rounds}_"
     assistant = Message(
         project_id=project.id,
         role="assistant",
-        content=summary,
+        content=body,
         attachments=[],
-        meta={"onboarding": True, "onboarding_done": True},
+        meta={"onboarding": True, "onboarding_done": False, "round": round_idx},
     )
     db.add(assistant)
-    db.add(MetricEvent(project_id=project.id, name="onboarding.done", value=1))
+    db.add(project)
+    db.add(MetricEvent(project_id=project.id, name="onboarding.round", value=float(round_idx)))
     db.commit()
-    db.refresh(user_msg)
     db.refresh(assistant)
     out.append(assistant)
-    return user_msg, out
+    return user_msg, out, False

@@ -1,16 +1,25 @@
-"""Projects CRUD + memories + onboarding seed."""
+"""Projects CRUD + memories + onboarding seed + competitor import."""
 from __future__ import annotations
 
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.db import Message, MetricEvent, Project, get_db, utcnow
-from app.schemas import MemoryCreate, MemoryOut, ProjectCreate, ProjectOut, ProjectUpdate
+from app.schemas import (
+    CompetitorsImportResult,
+    MemoryCreate,
+    MemoryOut,
+    ProjectCreate,
+    ProjectOut,
+    ProjectUpdate,
+)
 from app.services import memory as memory_svc
 from app.services.avito_feed import ensure_feed_token, feed_public_url
+from app.services.competitors import import_competitors_table
 from app.services.onboarding import ONBOARDING_SEED
 
 router = APIRouter()
@@ -29,6 +38,19 @@ def serialize_project(p: Project) -> ProjectOut:
         orchestrator_prompt=p.orchestrator_prompt or "",
         vision_prompt=p.vision_prompt or "",
         image_style_prompt=p.image_style_prompt or "",
+        listing_type=getattr(p, "listing_type", "") or "",
+        advantages=getattr(p, "advantages", "") or "",
+        buyer_pains=getattr(p, "buyer_pains", "") or "",
+        why_here=getattr(p, "why_here", "") or "",
+        ad_idea=getattr(p, "ad_idea", "") or "",
+        search_query=getattr(p, "search_query", "") or "",
+        conversion_offer=getattr(p, "conversion_offer", "") or "",
+        company_info=getattr(p, "company_info", "") or "",
+        photo_count=int(getattr(p, "photo_count", None) or settings.photo_count_default),
+        allow_people=bool(getattr(p, "allow_people", False)),
+        allow_text_overlays=bool(getattr(p, "allow_text_overlays", False)),
+        competitor_insights=getattr(p, "competitor_insights", "") or "",
+        visual_style_notes=getattr(p, "visual_style_notes", "") or "",
         onboarding_status=p.onboarding_status or "awaiting_brief",
         avito_feed_token=p.avito_feed_token or "",
         avito_category=p.avito_category or "",
@@ -67,6 +89,19 @@ def create_project(body: ProjectCreate, db: Session = Depends(get_db)) -> Projec
         orchestrator_prompt=body.orchestrator_prompt,
         vision_prompt=body.vision_prompt,
         image_style_prompt=body.image_style_prompt,
+        listing_type=body.listing_type,
+        advantages=body.advantages,
+        buyer_pains=body.buyer_pains,
+        why_here=body.why_here,
+        ad_idea=body.ad_idea,
+        search_query=body.search_query,
+        conversion_offer=body.conversion_offer,
+        company_info=body.company_info,
+        photo_count=max(1, min(int(body.photo_count or 1), settings.photo_count_max)),
+        allow_people=bool(body.allow_people),
+        allow_text_overlays=bool(body.allow_text_overlays),
+        competitor_insights=body.competitor_insights,
+        visual_style_notes=body.visual_style_notes,
         avito_category=body.avito_category,
         avito_address=body.avito_address,
         avito_contact_phone=body.avito_contact_phone,
@@ -113,6 +148,8 @@ def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(g
         if secret and not secret.startswith("•"):
             row.avito_client_secret = secret
         data.pop("avito_client_secret", None)
+    if "photo_count" in data and data["photo_count"] is not None:
+        data["photo_count"] = max(1, min(int(data["photo_count"]), settings.photo_count_max))
     for k, v in data.items():
         setattr(row, k, v)
     row.updated_at = utcnow()
@@ -131,6 +168,27 @@ def delete_project(project_id: int, db: Session = Depends(get_db)) -> dict[str, 
     db.delete(row)
     db.commit()
     return {"ok": True}
+
+
+@router.post("/{project_id}/competitors/import", response_model=CompetitorsImportResult)
+async def competitors_import(
+    project_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+) -> CompetitorsImportResult:
+    row = db.get(Project, project_id)
+    if not row:
+        raise HTTPException(404, "Project not found")
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "Пустой файл")
+    try:
+        result = await import_competitors_table(db, row, raw, filename=file.filename or "data.csv")
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(500, f"Импорт не удался: {exc}") from exc
+    return result
 
 
 @router.get("/{project_id}/memories", response_model=list[MemoryOut])

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, fileToDataUrl } from "./api.js";
+import { api, apiUpload, fileToDataUrl } from "./api.js";
 
 const NAV = [
   { id: "settings", label: "Настройки" },
@@ -944,6 +944,19 @@ function ModelSettings({ kind, project, defaults, onBack, onSave, busy }) {
         { key: "theme", label: "Тематика", rows: 2 },
         { key: "ideas", label: "Идеи", rows: 3 },
         { key: "constraints", label: "Ограничения", rows: 3 },
+        { key: "listing_type", label: "Тип (product/service/used/b2b)", rows: 1 },
+        { key: "ad_idea", label: "Идея объявления", rows: 3 },
+        { key: "search_query", label: "Поисковый запрос (заголовок)", rows: 1 },
+        { key: "conversion_offer", label: "Преимущество в заголовке", rows: 1 },
+        { key: "advantages", label: "Преимущества продукта", rows: 3 },
+        { key: "buyer_pains", label: "Боли покупателя", rows: 3 },
+        { key: "why_here", label: "Почему купить здесь", rows: 2 },
+        { key: "company_info", label: "О компании / продавце", rows: 3 },
+        { key: "photo_count", label: "Число фото (1–5)", rows: 1 },
+        { key: "allow_people", label: "Люди на фото (true/false)", rows: 1 },
+        { key: "allow_text_overlays", label: "Текст на фото (true/false)", rows: 1 },
+        { key: "competitor_insights", label: "Insights конкурентов", rows: 5 },
+        { key: "visual_style_notes", label: "Стиль с референсов", rows: 3 },
       ],
     },
     image: {
@@ -973,13 +986,52 @@ function ModelSettings({ kind, project, defaults, onBack, onSave, busy }) {
   }[kind];
 
   const [form, setForm] = useState({});
+  const [compHint, setCompHint] = useState("");
   useEffect(() => {
     const base = { [meta.modelKey]: project[meta.modelKey] || "" };
     meta.fields.forEach((f) => {
-      base[f.key] = project[f.key] || "";
+      const v = project[f.key];
+      if (typeof v === "boolean") base[f.key] = v ? "true" : "false";
+      else base[f.key] = v ?? "";
     });
     setForm(base);
   }, [project, kind]);
+
+  const handleSave = () => {
+    const payload = { ...form };
+    if (kind === "orch") {
+      if (payload.photo_count !== undefined) {
+        const n = parseInt(payload.photo_count, 10);
+        payload.photo_count = Number.isFinite(n) ? n : 1;
+      }
+      if (payload.allow_people !== undefined) {
+        payload.allow_people = String(payload.allow_people).toLowerCase() === "true";
+      }
+      if (payload.allow_text_overlays !== undefined) {
+        payload.allow_text_overlays =
+          String(payload.allow_text_overlays).toLowerCase() === "true";
+      }
+    }
+    onSave(payload);
+  };
+
+  const handleCompetitorsFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCompHint("Импорт…");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await apiUpload(`/api/projects/${project.id}/competitors/import`, fd);
+      setCompHint(res.message || "Готово");
+      if (res.competitor_insights) {
+        setForm((f) => ({ ...f, competitor_insights: res.competitor_insights }));
+      }
+    } catch (err) {
+      setCompHint(String(err.message || err));
+    }
+    e.target.value = "";
+  };
 
   return (
     <section className="stack-page">
@@ -1008,12 +1060,19 @@ function ModelSettings({ kind, project, defaults, onBack, onSave, busy }) {
             {f.label}
             <textarea
               rows={f.rows}
-              value={form[f.key] || ""}
+              value={form[f.key] ?? ""}
               onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
             />
           </label>
         ))}
-        <button className="primary" disabled={busy} onClick={() => onSave(form)}>
+        {kind === "orch" && (
+          <label>
+            Импорт таблицы конкурентов (CSV/XLSX)
+            <input type="file" accept=".csv,.xlsx,.xls" onChange={handleCompetitorsFile} />
+            {compHint && <span className="field-hint">{compHint}</span>}
+          </label>
+        )}
+        <button className="primary" disabled={busy} onClick={handleSave}>
           Сохранить для проекта
         </button>
       </div>
@@ -1262,13 +1321,13 @@ function InstructionsPanel({ project }) {
             <h3>Настройка проекта</h3>
             <ol>
               <li>
-                <strong>Онбординг в чате</strong> — опишите нишу; тема/идеи/ограничения и доп. промпты
-                проекта заполнятся сами (правки в Настройках). Базовые инструкции агентов встроены в
-                систему и в приложении не показываются.
+                <strong>Онбординг в чате</strong> — опишите нишу; слоты (идея, заголовок, боли, число
+                фото…) и доп. промпты заполнятся сами (правки в Настройках). Можно импортировать CSV/XLSX
+                конкурентов. Базовая методика агентов встроена и в UI не показывается.
               </li>
               <li>
-                <strong>Оркестратор</strong> — модель OpenRouter + доп. промпт проекта, тема, идеи,
-                ограничения.
+                <strong>Оркестратор</strong> — модель OpenRouter + смыслы объявления (идея, поисковый
+                запрос, преимущество, боли) и доп. промпт проекта.
               </li>
               <li>
                 При необходимости отдельно: <strong>Генерация изображений</strong> (стиль проекта) и{" "}

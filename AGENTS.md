@@ -5,8 +5,9 @@ Telegram Mini App + FastAPI for Avito creatives via OpenRouter. Repo: `https://g
 ## Hard rules
 
 - **Project isolation:** never mix chats, prompts, memory, feeds, or Avito credentials across `project_id`.
-- After project create: seed chat with «Давайте выполним настройку»; first user reply → onboarding parser → write theme/ideas/constraints/**project overlay prompts** for **that** project only.
-- **Built-in agent instructions** live in `app/services/prompts.py` and are always applied at runtime. They must **never** be shown or edited in the Mini App UI. Settings fields are project overlays from знакомство only.
+- After project create: seed chat with «Давайте выполним настройку»; multi-turn onboarding on **free** OpenRouter model fills theme/ideas/constraints/**listing slots** (ad_idea, pains, search_query, offer, photo_count, …) for **that** project only.
+- **Built-in listing methodology + agent instructions** live in `app/services/prompts.py` and are always applied at runtime. They must **never** be shown or edited in the Mini App UI. Settings fields are project overlays / slots from знакомство only.
+- Creative: single LLM pass → structured sections + N image_briefs (cap 5); prefer img2img edit when refs exist; text-only revisions skip vision/images.
 - Image generation: orchestrator sets `need_images` from the user request — no UI checkbox.
 - Approve creative → rebuild project XML feed; optional Autoload `upload` if Avito API keys exist.
 - Avito metrics: fetch **only** on user «Обновить»; otherwise show last snapshot.
@@ -21,7 +22,7 @@ Telegram Mini App + FastAPI for Avito creatives via OpenRouter. Repo: `https://g
 
 ## Env (Railway)
 
-`PUBLIC_BASE_URL`, `TELEGRAM_BOT_TOKEN`, `OPENROUTER_API_KEY`, `ORCHESTRATOR_MODEL`, `VISION_MODEL`, `IMAGE_MODEL`, `DATABASE_URL`, **`ADMIN_IDS`** (comma-separated Telegram user IDs — required in production; empty = open API for local/smoke only).
+`PUBLIC_BASE_URL`, `TELEGRAM_BOT_TOKEN`, `OPENROUTER_API_KEY`, `ORCHESTRATOR_MODEL`, `VISION_MODEL`, `IMAGE_MODEL`, `ONBOARDING_MODEL` (default `openrouter/free`), `DATABASE_URL`, **`ADMIN_IDS`** (comma-separated Telegram user IDs — required in production; empty = open API for local/smoke only).
 
 ## Access control
 
