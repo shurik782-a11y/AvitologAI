@@ -939,6 +939,21 @@ function PublicationsPanel({ project, pubs, runs, onPublish, busy }) {
   );
 }
 
+function formatPubDate(value) {
+  if (!value) return "дата н/д";
+  try {
+    return new Date(value).toLocaleString("ru-RU", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return String(value);
+  }
+}
+
 function MetricsPanel({
   projectId,
   list,
@@ -956,53 +971,7 @@ function MetricsPanel({
     setItemId(row?.avito_item_id || "");
   }, [metricId, list]);
 
-  if (metricId) {
-    return (
-      <section className="stack-page">
-        <button className="back" onClick={() => onOpen(null)}>
-          ← К списку
-        </button>
-        <div className="panel-head">
-          <div>
-            <div className="eyebrow">Статистика Avito</div>
-            <h1>Публикация #{metricId}</h1>
-          </div>
-        </div>
-        <div className="form-card">
-          <label>
-            Avito item ID
-            <input value={itemId} onChange={(e) => setItemId(e.target.value)} placeholder="числовой ID объявления" />
-          </label>
-          <button
-            className="primary"
-            disabled={busy || !itemId.trim()}
-            onClick={async () => {
-              try {
-                await api.patchCreative(projectId, metricId, { avito_item_id: itemId.trim() });
-                await onListReload();
-                await onRefresh();
-              } catch (e) {
-                onError(e.message);
-              }
-            }}
-          >
-            Сохранить ID и обновить
-          </button>
-        </div>
-        <div className="row-actions">
-          <button className="primary" disabled={busy} onClick={() => onRefresh()}>
-            Обновить
-          </button>
-          <span className="muted">
-            {snapshot?.fetched_at
-              ? `Снимок: ${new Date(snapshot.fetched_at).toLocaleString()}`
-              : snapshot?.message || "Ещё не обновляли"}
-          </span>
-        </div>
-        <pre className="stat-json">{JSON.stringify(snapshot?.payload || {}, null, 2)}</pre>
-      </section>
-    );
-  }
+  const selected = list.find((x) => x.creative_id === metricId) || null;
 
   return (
     <section className="stack-page">
@@ -1012,14 +981,15 @@ function MetricsPanel({
           <h1>Метрики</h1>
         </div>
       </div>
-      <p className="lede">Выберите публикацию. Данные с Авито — только по «Обновить».</p>
+      <p className="lede">Выберите публикацию. Данные с Авито — только по «Обновить» в модалке.</p>
       <div className="rows">
         {list.map((p) => (
           <button key={p.creative_id} className="row-btn" onClick={() => onOpen(p.creative_id)}>
             <div>
               <strong>{p.title || `#${p.creative_id}`}</strong>
               <div className="mono muted">
-                item {p.avito_item_id || "не задан"} · {p.has_snapshot ? "есть снимок" : "нет снимка"}
+                {formatPubDate(p.published_at)} · item {p.avito_item_id || "не задан"}
+                {p.has_snapshot ? " · есть снимок" : ""}
               </div>
             </div>
             <span className="chev">›</span>
@@ -1027,6 +997,57 @@ function MetricsPanel({
         ))}
         {!list.length && <div className="muted">Нет утверждённых публикаций.</div>}
       </div>
+
+      {metricId && (
+        <div className="modal-scrim" onClick={() => onOpen(null)}>
+          <div className="modal modal-wide" onClick={(e) => e.stopPropagation()}>
+            <div className="panel-head" style={{ marginBottom: 0 }}>
+              <div>
+                <div className="eyebrow">Статистика Avito</div>
+                <h2>{selected?.title || `Публикация #${metricId}`}</h2>
+                <div className="mono muted">{formatPubDate(selected?.published_at)}</div>
+              </div>
+            </div>
+            <label>
+              Avito item ID
+              <input
+                value={itemId}
+                onChange={(e) => setItemId(e.target.value)}
+                placeholder="числовой ID объявления"
+              />
+            </label>
+            <div className="row-actions">
+              <button
+                className="primary"
+                disabled={busy || !itemId.trim()}
+                onClick={async () => {
+                  try {
+                    await api.patchCreative(projectId, metricId, { avito_item_id: itemId.trim() });
+                    await onListReload();
+                    await onRefresh();
+                  } catch (e) {
+                    onError(e.message);
+                  }
+                }}
+              >
+                Сохранить ID и обновить
+              </button>
+              <button className="primary" disabled={busy} onClick={() => onRefresh()}>
+                Обновить
+              </button>
+              <button type="button" onClick={() => onOpen(null)}>
+                Закрыть
+              </button>
+            </div>
+            <span className="muted">
+              {snapshot?.fetched_at
+                ? `Снимок: ${formatPubDate(snapshot.fetched_at)}`
+                : snapshot?.message || "Ещё не обновляли"}
+            </span>
+            <pre className="stat-json">{JSON.stringify(snapshot?.payload || {}, null, 2)}</pre>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -1034,6 +1055,7 @@ function MetricsPanel({
 function InstructionsPanel({ project }) {
   const feedUrl = buildFeedUrl(project);
   const [copied, setCopied] = useState("");
+  const [tab, setTab] = useState("header");
 
   async function copyFeed() {
     try {
@@ -1045,165 +1067,146 @@ function InstructionsPanel({ project }) {
     }
   }
 
+  const tabs = [
+    { id: "header", label: "Хеддер" },
+    { id: "setup", label: "Настройка проекта" },
+    { id: "publish", label: "Публикация" },
+  ];
+
   return (
     <section className="stack-page">
       <div className="panel-head">
         <div>
-          <div className="eyebrow">Связка Avito ↔ WebApp</div>
+          <div className="eyebrow">Usage</div>
           <h1>Инструкции</h1>
         </div>
       </div>
 
-      <div className="doc-card">
-        <h3>Как ИИ публикует объявления</h3>
-        <p className="muted">
-          После «Утвердить» креатив попадает в XML-фид проекта. Авито забирает фид по URL (кабинет
-          Автозагрузки) или WebApp дергает Autoload API (если заданы Client ID/Secret). Без фида или
-          без ключей «сама публикация на Авито» не сработает.
-        </p>
-      </div>
-
-      <div className="doc-card">
-        <h3>1. Настройте WebApp (этот проект)</h3>
-        <ol>
-          <li>
-            Откройте <strong>Настройки → Avito / Фид</strong> для выбранного проекта.
-          </li>
-          <li>
-            Заполните поля объявления (они уходят в XML):
-            <ul>
-              <li>
-                <strong>Категория</strong> — ваша рубрика Авито → в фид как <code>Category</code>
-              </li>
-              <li>
-                <strong>Адрес</strong> — город/адрес → <code>Address</code>
-              </li>
-              <li>
-                <strong>Телефон</strong> — контакт → <code>ContactPhone</code>
-              </li>
-            </ul>
-          </li>
-          <li>
-            Для <strong>автопубликации через API</strong> (кнопка утвердить / «Обновить фид») добавьте:
-            <ul>
-              <li>
-                <strong>Client ID</strong> и <strong>Client Secret</strong> — из кабинета Авито:
-                «Для профессионалов» → API или{" "}
-                <a href="https://developers.avito.ru/" target="_blank" rel="noreferrer">
-                  developers.avito.ru
-                </a>{" "}
-                → приложение. Вставляются только в Настройки этого проекта.
-              </li>
-              <li>
-                <strong>User ID</strong> — числовой ID аккаунта Авито (нужен для раздела Метрики).
-              </li>
-            </ul>
-          </li>
-          <li>
-            Нажмите <strong>Сохранить Avito</strong>. После заполнения блок свернётся; URL фида
-            копируется кнопкой под ним.
-          </li>
-        </ol>
-        <div className="avito-copy-row">
-          <button type="button" className="btn-copy-sm" disabled={!feedUrl} onClick={copyFeed}>
-            Скопировать URL фида
+      <div className="instr-tabs">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            className={`instr-tab ${tab === t.id ? "active" : ""}`}
+            onClick={() => setTab(t.id)}
+          >
+            {t.label}
           </button>
-          {copied && <span className="muted">{copied}</span>}
+        ))}
+      </div>
+
+      {tab === "header" && (
+        <div className="doc-card">
+          <h3>Хеддер</h3>
+          <ol>
+            <li>
+              Справа сверху — <strong>выбор проекта</strong> и «+ Новый проект». После создания в чате
+              придёт онбординг.
+            </li>
+            <li>
+              <strong>Изоляция:</strong> чат, настройки, фид, публикации и метрики привязаны только к
+              выбранному <code>project_id</code>. Данные чужих проектов не читаются и не пишутся.
+            </li>
+            <li>
+              Между брендом AvitologAI и picker — <strong>баланс OpenRouter</strong> (остаток / spend за
+              месяц). Ключ на клиент не отдаётся.
+            </li>
+          </ol>
         </div>
-        {feedUrl ? (
-          <p className="mono muted" style={{ wordBreak: "break-all", margin: 0 }}>
-            {feedUrl}
-          </p>
-        ) : (
-          <p className="muted">Выберите проект и сохраните Avito / Фид — URL появится здесь.</p>
-        )}
-      </div>
+      )}
 
-      <div className="doc-card">
-        <h3>2. Куда вставить URL на Авито</h3>
-        <ol>
-          <li>
-            Скопируйте URL кнопкой выше (формат:{" "}
-            <code>/api/projects/&#123;id&#125;/avito-feed.xml?token=…</code>).
-          </li>
-          <li>
-            Token берётся из проекта автоматически (<code>avito_feed_token</code>), база — публичный
-            HTTPS адрес приложения (<code>PUBLIC_BASE_URL</code> / текущий домен).
-          </li>
-          <li>
-            В кабинете Авито откройте <strong>Автозагрузку</strong> → добавьте/укажите фид → вставьте
-            этот URL как адрес файла объявлений.
-          </li>
-          <li>
-            Проверьте XML:{" "}
-            <a href="https://autoload.avito.ru/format/xmlcheck/" target="_blank" rel="noreferrer">
-              валидатор Автозагрузки
-            </a>
-            .
-          </li>
-          <li>
-            Если Client ID/Secret заданы — при утверждении WebApp сам может дернуть upload API; URL
-            в кабинете всё равно полезен как запасной канал.
-          </li>
-        </ol>
-      </div>
+      {tab === "setup" && (
+        <>
+          <div className="doc-card">
+            <h3>Настройка проекта</h3>
+            <ol>
+              <li>
+                <strong>Онбординг в чате</strong> — опишите нишу; поля темы/идей/ограничений и промпты
+                заполнятся сами (их можно править в Настройках).
+              </li>
+              <li>
+                <strong>Оркестратор</strong> — модель OpenRouter + системный промпт, тема, идеи,
+                ограничения.
+              </li>
+              <li>
+                При необходимости отдельно: <strong>Генерация изображений</strong> (стиль) и{" "}
+                <strong>Vision</strong> (разбор фото).
+              </li>
+              <li>
+                <strong>Avito / Фид</strong> — категория, адрес, телефон для XML. Client ID/Secret
+                опциональны (API upload). User ID — для метрик. URL фида копируется без API.
+              </li>
+            </ol>
+          </div>
+          <div className="doc-card">
+            <h3>Avito: откуда → куда</h3>
+            <div className="instr-table">
+              <div>
+                <strong>Значение</strong>
+                <span className="muted">Откуда</span>
+                <span className="muted">Куда</span>
+              </div>
+              <div>
+                <strong>Категория / Адрес / Телефон</strong>
+                <span>Настройки проекта</span>
+                <span>XML Category / Address / ContactPhone</span>
+              </div>
+              <div>
+                <strong>Feed URL</strong>
+                <span>Кнопка «Скопировать URL»</span>
+                <span>Кабинет Автозагрузки Авито</span>
+              </div>
+              <div>
+                <strong>Client ID / Secret</strong>
+                <span>developers.avito.ru / API кабинета</span>
+                <span>Настройки → автопубликация (опционально)</span>
+              </div>
+              <div>
+                <strong>User ID</strong>
+                <span>Профиль Авито</span>
+                <span>Метрики объявлений</span>
+              </div>
+            </div>
+            <div className="avito-copy-row">
+              <button type="button" className="btn-copy-sm" onClick={copyFeed}>
+                Скопировать URL фида
+              </button>
+              {copied && <span className="muted">{copied}</span>}
+            </div>
+            {feedUrl ? (
+              <p className="mono muted" style={{ wordBreak: "break-all", margin: 0 }}>
+                {feedUrl}
+              </p>
+            ) : (
+              <p className="muted">Выберите проект — URL появится после токена фида.</p>
+            )}
+          </div>
+        </>
+      )}
 
-      <div className="doc-card">
-        <h3>3. Таблица: откуда → куда</h3>
-        <div className="instr-table">
-          <div>
-            <strong>Значение</strong>
-            <span className="muted">Откуда берётся</span>
-            <span className="muted">Куда вставляется</span>
-          </div>
-          <div>
-            <strong>Категория / Адрес / Телефон</strong>
-            <span>Вы вручную в Настройках</span>
-            <span>XML-фид (Category, Address, ContactPhone)</span>
-          </div>
-          <div>
-            <strong>Заголовок, описание, фото, цена</strong>
-            <span>Чат → креатив ИИ → Утвердить</span>
-            <span>XML (Title, Description, Images, Price)</span>
-          </div>
-          <div>
-            <strong>Feed URL + token</strong>
-            <span>Генерируется проектом (кнопка «Скопировать URL»)</span>
-            <span>Кабинет Автозагрузки Авито → URL фида</span>
-          </div>
-          <div>
-            <strong>Client ID / Secret</strong>
-            <span>Авито API / developers.avito.ru</span>
-            <span>Настройки проекта → автопубликация upload</span>
-          </div>
-          <div>
-            <strong>User ID</strong>
-            <span>Профиль Авито / API</span>
-            <span>Настройки → Метрики по объявлениям</span>
-          </div>
-          <div>
-            <strong>avito_item_id</strong>
-            <span>После выгрузки — ID объявления на Авито</span>
-            <span>Метрики → поле item ID → «Обновить»</span>
-          </div>
+      {tab === "publish" && (
+        <div className="doc-card">
+          <h3>Публикация</h3>
+          <ol>
+            <li>
+              В чате явно укажите товар, цену, тон, ограничения; «без картинки» — если фото не нужно.
+              Можно прикрепить фото скрепкой.
+            </li>
+            <li>
+              После черновика: <strong>Утвердить</strong> — креатив в XML-фид (публикация), или напишите
+              правки свободным текстом.
+            </li>
+            <li>
+              При правках оркестратор: «Фиксирую ошибку» → классифицирует (общая / только проект) →
+              сохраняет → «Выполняю правки» → новый черновик. Снова Утвердить или правки.
+            </li>
+            <li>
+              После утверждения строка появляется в <strong>Метрики</strong> (название + дата). Клик —
+              модалка; статистика Авито только по кнопке <strong>Обновить</strong>.
+            </li>
+          </ol>
         </div>
-      </div>
-
-      <div className="doc-card">
-        <h3>4. Рабочий цикл</h3>
-        <ol>
-          <li>Чат: задание → черновик → правки при необходимости.</li>
-          <li>
-            <strong>Утвердить</strong> → креатив в фиде; при ключах API — попытка подгрузки.
-          </li>
-          <li>
-            Раздел <strong>Публикации</strong> — статус и ручной «Обновить фид / запустить подгрузку».
-          </li>
-          <li>
-            <strong>Метрики</strong> — данные Авито только по кнопке «Обновить».
-          </li>
-        </ol>
-      </div>
+      )}
     </section>
   );
 }

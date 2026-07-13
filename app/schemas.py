@@ -126,6 +126,7 @@ class CreativeOut(BaseModel):
     publish_status: str = ""
     last_feed_error: str = ""
     created_at: datetime
+    published_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
@@ -196,6 +197,7 @@ class PublicationMetricOut(BaseModel):
     avito_ad_id: str
     publish_status: str
     status: str
+    published_at: datetime | None = None
     fetched_at: datetime | None = None
     has_snapshot: bool = False
 

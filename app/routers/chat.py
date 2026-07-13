@@ -110,6 +110,10 @@ async def approve_creative(
     if not creative.avito_ad_id:
         creative.avito_ad_id = f"p{project_id}-c{creative_id}"
     creative.publish_status = "approved"
+    if not creative.published_at:
+        from app.db import utcnow
+
+        creative.published_at = utcnow()
     db.add(creative)
     db.add(
         MetricEvent(

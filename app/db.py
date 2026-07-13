@@ -104,6 +104,19 @@ class Memory(Base):
     project: Mapped[Project] = relationship(back_populates="memories")
 
 
+class GlobalMemory(Base):
+    """Cross-project mistake/fix patterns (never stores project creatives)."""
+
+    __tablename__ = "global_memories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(64), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    hits: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class Creative(Base):
     __tablename__ = "creatives"
 
@@ -121,6 +134,7 @@ class Creative(Base):
     publish_status: Mapped[str] = mapped_column(String(64), default="")
     last_feed_error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     project: Mapped[Project] = relationship(back_populates="creatives")
     snapshots: Mapped[list[AvitoStatSnapshot]] = relationship(
@@ -207,6 +221,7 @@ CREATIVE_COLUMNS: dict[str, str] = {
     "avito_item_id": "VARCHAR(64) DEFAULT ''",
     "publish_status": "VARCHAR(64) DEFAULT ''",
     "last_feed_error": "TEXT DEFAULT ''",
+    "published_at": "DATETIME",
 }
 
 

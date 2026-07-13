@@ -117,19 +117,24 @@ async def run_orchestrator(
         brief = user_text.strip().replace("\n", " ")
         if len(brief) > 180:
             brief = brief[:177] + "…"
-        status_msgs.append(
-            emit_status(
-                db,
-                project.id,
-                f"Фиксирую ошибку: {brief}",
-                "mistake",
-            )
-        )
-        memory_svc.remember_mistake(
+        classified = await memory_svc.classify_and_remember_mistake(
             db,
             project.id,
             user_text,
             prev_title=prev_creative.title or "",
+            api_key=api_key,
+            model=(
+                project.orchestrator_model or cfg.orchestrator_model or settings.orchestrator_model
+            ).strip(),
+        )
+        scope_label = "общая" if classified.get("scope") == "global" else "только этот проект"
+        status_msgs.append(
+            emit_status(
+                db,
+                project.id,
+                f"Фиксирую ошибку ({scope_label}): {brief}",
+                "mistake",
+            )
         )
         status_msgs.append(emit_status(db, project.id, "Выполняю правки", "revise"))
 

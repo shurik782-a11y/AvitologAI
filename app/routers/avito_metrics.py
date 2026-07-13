@@ -40,6 +40,7 @@ def list_metric_publications(project_id: int, db: Session = Depends(get_db)) -> 
                 avito_ad_id=c.avito_ad_id,
                 publish_status=c.publish_status,
                 status=c.status,
+                published_at=c.published_at or c.created_at,
                 fetched_at=snap.fetched_at if snap else None,
                 has_snapshot=bool(snap),
             )
