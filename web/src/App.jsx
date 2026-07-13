@@ -9,11 +9,17 @@ const NAV = [
 ];
 
 function buildFeedUrl(project) {
-  if (!project) return "";
-  if (project.feed_url) return project.feed_url;
-  const token = project.avito_feed_token;
-  if (!token || !project.id) return "";
-  return `${window.location.origin}/api/projects/${project.id}/avito-feed.xml?token=${encodeURIComponent(token)}`;
+  if (!project?.id) return "";
+  const token = String(project.avito_feed_token || "").trim();
+  const raw = String(project.feed_url || "").trim();
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const local = token
+    ? `${origin}/api/projects/${project.id}/avito-feed.xml?token=${encodeURIComponent(token)}`
+    : "";
+  if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
+  if (local) return local;
+  if (raw.startsWith("/") && origin) return `${origin}${raw}`;
+  return raw || "";
 }
 
 function isAvitoConfigured(project) {
@@ -22,13 +28,25 @@ function isAvitoConfigured(project) {
     String(project.avito_category || "").trim() &&
       String(project.avito_address || "").trim() &&
       String(project.avito_contact_phone || "").trim() &&
-      (project.avito_feed_token || project.feed_url)
+      (project.avito_feed_token || project.feed_url || project.id)
   );
 }
 
 async function copyText(text) {
-  if (!text) throw new Error("URL ещё не готов — сохраните настройки Avito");
-  await navigator.clipboard.writeText(text);
+  if (!text) throw new Error("URL ещё не готов — нажмите «Сохранить Avito»");
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const el = document.createElement("textarea");
+    el.value = text;
+    el.setAttribute("readonly", "");
+    el.style.position = "fixed";
+    el.style.left = "-9999px";
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand("copy");
+    document.body.removeChild(el);
+  }
 }
 
 function PaperclipIcon() {
@@ -145,14 +163,16 @@ export default function App() {
   }
 
   async function saveProjectFields(patch) {
-    if (!projectId) return;
+    if (!projectId) return null;
     setBusy(true);
     try {
       const updated = await api.updateProject(projectId, patch);
       setProjects((list) => list.map((p) => (p.id === updated.id ? updated : p)));
       setError("");
+      return updated;
     } catch (e) {
       setError(e.message);
+      return null;
     } finally {
       setBusy(false);
     }
@@ -633,18 +653,24 @@ function SettingsHub({ project, defaults, onOpen, onNeedProject, onSaveAvito }) 
   const apiReady = Boolean(project.avito_client_id && project.avito_client_secret_set);
 
   async function handleSaveAvito() {
-    await onSaveAvito(avito);
+    const updated = await onSaveAvito(avito);
     const ready = Boolean(
       String(avito.avito_category || "").trim() &&
         String(avito.avito_address || "").trim() &&
         String(avito.avito_contact_phone || "").trim()
     );
     if (ready) setAvitoOpen(false);
+    return updated;
   }
 
   async function handleCopyUrl() {
     try {
-      await copyText(feedUrl);
+      let url = buildFeedUrl(project);
+      if (!url) {
+        const updated = await onSaveAvito(avito);
+        url = buildFeedUrl(updated || project);
+      }
+      await copyText(url);
       setCopyHint("Скопировано");
       setTimeout(() => setCopyHint(""), 1600);
     } catch (e) {
@@ -759,11 +785,20 @@ function SettingsHub({ project, defaults, onOpen, onNeedProject, onSaveAvito }) 
         )}
 
         <div className="avito-copy-row">
-          <button type="button" className="btn-copy-sm" disabled={!feedUrl} onClick={handleCopyUrl}>
+          <button type="button" className="btn-copy-sm" onClick={handleCopyUrl}>
             Скопировать URL
           </button>
           {copyHint && <span className="muted">{copyHint}</span>}
         </div>
+        {feedUrl ? (
+          <p className="mono muted" style={{ wordBreak: "break-all", margin: 0, fontSize: "0.78rem" }}>
+            {feedUrl}
+          </p>
+        ) : (
+          <p className="muted" style={{ margin: 0, fontSize: "0.85rem" }}>
+            URL появится после сохранения (Client ID не нужен).
+          </p>
+        )}
       </div>
     </section>
   );

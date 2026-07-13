@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.db import Message, MetricEvent, Project, get_db, utcnow
 from app.schemas import MemoryCreate, MemoryOut, ProjectCreate, ProjectOut, ProjectUpdate
 from app.services import memory as memory_svc
-from app.services.avito_feed import feed_public_url
+from app.services.avito_feed import ensure_feed_token, feed_public_url
 from app.services.onboarding import ONBOARDING_SEED
 
 router = APIRouter()
@@ -37,7 +37,7 @@ def serialize_project(p: Project) -> ProjectOut:
         avito_client_id=p.avito_client_id or "",
         avito_user_id=p.avito_user_id or "",
         avito_client_secret_set=bool(p.avito_client_secret),
-        feed_url=feed_public_url(p) if p.avito_feed_token else "",
+        feed_url=feed_public_url(p),
         extra=p.extra or {},
         created_at=p.created_at,
         updated_at=p.updated_at,
@@ -47,7 +47,11 @@ def serialize_project(p: Project) -> ProjectOut:
 @router.get("", response_model=list[ProjectOut])
 def list_projects(db: Session = Depends(get_db)) -> list[ProjectOut]:
     rows = list(db.scalars(select(Project).order_by(Project.updated_at.desc())))
-    return [serialize_project(p) for p in rows]
+    out: list[ProjectOut] = []
+    for row in rows:
+        ensure_feed_token(db, row)
+        out.append(serialize_project(row))
+    return out
 
 
 @router.post("", response_model=ProjectOut)
@@ -94,6 +98,7 @@ def get_project(project_id: int, db: Session = Depends(get_db)) -> ProjectOut:
     row = db.get(Project, project_id)
     if not row:
         raise HTTPException(404, "Project not found")
+    ensure_feed_token(db, row)
     return serialize_project(row)
 
 
@@ -114,6 +119,7 @@ def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(g
     db.add(row)
     db.commit()
     db.refresh(row)
+    ensure_feed_token(db, row)
     return serialize_project(row)
 
 

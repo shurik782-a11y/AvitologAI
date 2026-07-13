@@ -1,6 +1,7 @@
 """Build Avito Autoload XML feed for a project."""
 from __future__ import annotations
 
+import secrets
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -22,10 +23,23 @@ def absolute_media_url(path: str) -> str:
     return path
 
 
+def ensure_feed_token(db: Session, project: Project) -> Project:
+    """Backfill feed token for older projects (API keys not required)."""
+    if not (project.avito_feed_token or "").strip():
+        project.avito_feed_token = secrets.token_urlsafe(16)
+        db.add(project)
+        db.commit()
+        db.refresh(project)
+    return project
+
+
 def feed_public_url(project: Project) -> str:
+    token = (project.avito_feed_token or "").strip()
+    if not token or not project.id:
+        return ""
     base = (settings.public_base_url or "").rstrip("/")
-    token = project.avito_feed_token or ""
-    return f"{base}/api/projects/{project.id}/avito-feed.xml?token={token}"
+    path = f"/api/projects/{project.id}/avito-feed.xml?token={token}"
+    return f"{base}{path}" if base else path
 
 
 def build_feed_xml(db: Session, project: Project) -> str:
