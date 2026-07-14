@@ -40,26 +40,91 @@ def get_app_settings(db: Session) -> AppSettings:
     return row
 
 
-def _parse_json_payload(text: str) -> dict[str, Any]:
-    text = text.strip()
-    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
-    if fence:
-        text = fence.group(1).strip()
-    try:
-        data = json.loads(text)
+def _coerce_message_content(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                parts.append(part)
+            elif isinstance(part, dict):
+                t = part.get("text")
+                if isinstance(t, str):
+                    parts.append(t)
+                elif part.get("type") == "text" and isinstance(part.get("content"), str):
+                    parts.append(part["content"])
+        return "\n".join(parts)
+    return str(content)
+
+
+def _extract_balanced_object(text: str) -> str | None:
+    """Return first top-level {...} with string-aware brace matching."""
+    start = text.find("{")
+    if start < 0:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
+
+
+def _loads_json_object(raw: str) -> dict[str, Any] | None:
+    s = (raw or "").strip()
+    if not s:
+        return None
+    candidates = [s]
+    # trailing commas before } or ]
+    fixed = re.sub(r",\s*([}\]])", r"\1", s)
+    if fixed != s:
+        candidates.append(fixed)
+    for cand in candidates:
+        try:
+            data = json.loads(cand)
+        except json.JSONDecodeError:
+            continue
         if isinstance(data, dict):
             return data
-    except json.JSONDecodeError:
-        pass
-    start = text.find("{")
-    end = text.rfind("}")
-    if start >= 0 and end > start:
-        try:
-            data = json.loads(text[start : end + 1])
-            if isinstance(data, dict):
-                return data
-        except json.JSONDecodeError:
-            pass
+    return None
+
+
+def _parse_json_payload(text: Any) -> dict[str, Any]:
+    text = _coerce_message_content(text)
+    text = text.lstrip("\ufeff").strip()
+    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text, flags=re.IGNORECASE)
+    if fence:
+        text = fence.group(1).strip()
+
+    data = _loads_json_object(text)
+    if data is not None:
+        return data
+
+    extracted = _extract_balanced_object(text)
+    if extracted:
+        data = _loads_json_object(extracted)
+        if data is not None:
+            return data
+
     # Do NOT dump English chain-of-thought into description
     return {
         "title": "",
@@ -434,23 +499,109 @@ async def run_orchestrator(
         *history_msgs,
         {"role": "user", "content": user_content},
     ]
+
+    async def _orch_call(
+        msgs: list[dict[str, Any]],
+        *,
+        temperature: float,
+        use_json_format: bool,
+    ) -> tuple[dict[str, Any], str]:
+        kwargs: dict[str, Any] = {
+            "api_key": api_key,
+            "model": orch_model,
+            "messages": msgs,
+            "max_tokens": 3200,
+            "temperature": temperature,
+        }
+        if use_json_format:
+            kwargs["response_format"] = {"type": "json_object"}
+        raw_resp = await chat_completions(**kwargs)
+        choice = (raw_resp.get("choices") or [{}])[0]
+        msg = choice.get("message") or {}
+        text = _coerce_message_content(msg.get("content"))
+        return raw_resp, text
+
+    json_format_ok = True
     try:
-        raw = await chat_completions(
-            api_key,
-            model=orch_model,
-            messages=messages,
-            max_tokens=3200,
-            response_format={"type": "json_object"},
+        raw, assistant_text = await _orch_call(messages, temperature=0.15, use_json_format=True)
+    except OpenRouterError as exc:
+        err = str(exc).lower()
+        unsupported = any(
+            x in err
+            for x in (
+                "response_format",
+                "json_object",
+                "not support",
+                "unsupported",
+                "invalid schema",
+            )
         )
-    except OpenRouterError:
-        raw = await chat_completions(
-            api_key,
-            model=orch_model,
-            messages=messages,
-            max_tokens=3200,
-        )
-    assistant_text = (raw.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+        if unsupported:
+            json_format_ok = False
+            prompt_only = list(messages)
+            prompt_only[0] = {
+                "role": "system",
+                "content": system
+                + "\n\nКРИТИЧНО: верни ТОЛЬКО один валидный JSON-объект. Без markdown и без текста вокруг.",
+            }
+            raw, assistant_text = await _orch_call(
+                prompt_only, temperature=0.15, use_json_format=False
+            )
+        else:
+            raise
+
     parsed = _parse_json_payload(assistant_text)
+
+    if parsed.get("parse_error"):
+        repair_msgs = [
+            {
+                "role": "system",
+                "content": (
+                    "Ты исправляешь ответ в валидный JSON для объявления Авито. "
+                    "Верни СТРОГО один JSON-объект со полями: "
+                    "ad_idea, title, search_query, conversion_offer, description, sections, "
+                    "pains, analysis, need_images, image_prompt, image_briefs, propose_new_idea, price. "
+                    "Человеческие тексты — на русском. Без рассуждений и markdown."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    "Исправь ответ модели в валидный JSON по схеме. "
+                    "Вот сырой ответ (обрезан):\n\n"
+                    + (assistant_text or "")[:2500]
+                ),
+            },
+        ]
+        try:
+            _, repaired_text = await _orch_call(
+                repair_msgs, temperature=0.1, use_json_format=json_format_ok
+            )
+            repaired = _parse_json_payload(repaired_text)
+            if not repaired.get("parse_error"):
+                parsed = repaired
+                assistant_text = repaired_text
+            else:
+                db.add(
+                    MetricEvent(
+                        project_id=project.id,
+                        name="orch.parse_error",
+                        value=1,
+                        payload={"preview": (assistant_text or "")[:400], "repaired": False},
+                    )
+                )
+        except OpenRouterError as exc:
+            db.add(
+                MetricEvent(
+                    project_id=project.id,
+                    name="orch.parse_error",
+                    value=1,
+                    payload={
+                        "preview": (assistant_text or "")[:400],
+                        "repair_error": str(exc)[:200],
+                    },
+                )
+            )
 
     sections = _clean_sections(parsed.get("sections") if isinstance(parsed.get("sections"), dict) else {})
     description = _polish_description(
