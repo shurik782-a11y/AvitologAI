@@ -610,27 +610,43 @@ async def run_orchestrator(
     pretty = "\n".join(pretty_parts)
     if meta.get("propose_new_idea"):
         pretty += "\n\nМожно сделать вариант с другой идеей — напишите, если нужно."
-    if parsed.get("parse_error"):
+    parse_failed = bool(parsed.get("parse_error"))
+    if parse_failed:
         pretty = (
-            f"**{title}**\n\n{description}\n\n"
-            "Модель ответила не JSON. Напишите «сделай пост» ещё раз или уточните правку."
+            "Не удалось собрать текст объявления. "
+            "Напишите правку или «сделай пост» ещё раз."
         )
+        creative.meta = {**(creative.meta or {}), "failed": True, "parse_error": True}
+        flag_modified(creative, "meta")
+        db.add(creative)
+        db.commit()
+        db.refresh(creative)
 
     assistant_msg = Message(
         project_id=project.id,
         role="assistant",
         content=pretty,
-        attachments=creative.images if isinstance(creative.images, list) else [],
-        meta={"need_images": need_images, "delivery": True},
+        attachments=(
+            []
+            if parse_failed
+            else (creative.images if isinstance(creative.images, list) else [])
+        ),
+        meta={
+            "need_images": need_images if not parse_failed else False,
+            "delivery": True,
+            "parse_error": parse_failed,
+            "failed": parse_failed,
+        },
     )
     db.add(assistant_msg)
     db.commit()
     db.refresh(creative)
     db.refresh(assistant_msg)
-    assistant_msg.meta = {**(assistant_msg.meta or {}), "creative_id": creative.id}
-    flag_modified(assistant_msg, "meta")
-    db.add(assistant_msg)
-    db.commit()
-    db.refresh(assistant_msg)
+    if not parse_failed:
+        assistant_msg.meta = {**(assistant_msg.meta or {}), "creative_id": creative.id}
+        flag_modified(assistant_msg, "meta")
+        db.add(assistant_msg)
+        db.commit()
+        db.refresh(assistant_msg)
     clear_status_messages(db, project.id)
-    return user_msg, [assistant_msg], creative
+    return user_msg, [assistant_msg], None if parse_failed else creative

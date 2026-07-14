@@ -412,62 +412,68 @@ export default function App() {
     <div className="shell">
       <header className="topbar">
         <div className="topbar-left">
-          <button className="icon-btn mobile-only" onClick={() => setNavOpen((v) => !v)} aria-label="Меню">
-            ☰
-          </button>
           <div className="brand">AvitologAI</div>
           <div className="balance" title={billing?.error || ""}>
             {billing?.label || "баланс…"}
           </div>
         </div>
 
-        <div className="picker" ref={pickerRef}>
+        <div className="topbar-right">
+          <div className="picker" ref={pickerRef}>
+            <button
+              className={`picker-btn ${project ? "has-project" : ""}`}
+              onClick={() => setPickerOpen((v) => !v)}
+            >
+              <span className="picker-label">{pickerLabel}</span>
+              <span className="picker-caret">▾</span>
+            </button>
+            {pickerOpen && (
+              <div className="picker-menu">
+                <button
+                  className="picker-item new"
+                  onClick={() => {
+                    setPickerOpen(false);
+                    setNewOpen(true);
+                  }}
+                >
+                  + Новый проект
+                </button>
+                <div className="picker-sep" />
+                {projects.map((p) => (
+                  <div key={p.id} className={`picker-row ${p.id === projectId ? "active" : ""}`}>
+                    <button type="button" className="picker-item" onClick={() => selectProject(p.id)}>
+                      {p.name}
+                    </button>
+                    <button
+                      type="button"
+                      className="picker-delete"
+                      title="Удалить проект"
+                      aria-label={`Удалить ${p.name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPickerOpen(false);
+                        setDeleteTarget(p);
+                      }}
+                    >
+                      <TrashIcon />
+                    </button>
+                  </div>
+                ))}
+                {!projects.length && <div className="picker-empty">Пока нет проектов</div>}
+              </div>
+            )}
+          </div>
           <button
-            className={`picker-btn ${project ? "has-project" : ""}`}
-            onClick={() => setPickerOpen((v) => !v)}
+            className="icon-btn mobile-only menu-btn"
+            onClick={() => setNavOpen((v) => !v)}
+            aria-label="Меню"
           >
-            <span className="picker-label">{pickerLabel}</span>
-            <span className="picker-caret">▾</span>
+            ☰
           </button>
-          {pickerOpen && (
-            <div className="picker-menu">
-              <button
-                className="picker-item new"
-                onClick={() => {
-                  setPickerOpen(false);
-                  setNewOpen(true);
-                }}
-              >
-                + Новый проект
-              </button>
-              <div className="picker-sep" />
-              {projects.map((p) => (
-                <div key={p.id} className={`picker-row ${p.id === projectId ? "active" : ""}`}>
-                  <button type="button" className="picker-item" onClick={() => selectProject(p.id)}>
-                    {p.name}
-                  </button>
-                  <button
-                    type="button"
-                    className="picker-delete"
-                    title="Удалить проект"
-                    aria-label={`Удалить ${p.name}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setPickerOpen(false);
-                      setDeleteTarget(p);
-                    }}
-                  >
-                    <TrashIcon />
-                  </button>
-                </div>
-              ))}
-              {!projects.length && <div className="picker-empty">Пока нет проектов</div>}
-            </div>
-          )}
         </div>
       </header>
 
-      <div className="body">
+      <div className="app-body">
         <aside className={`sidebar ${navOpen ? "open" : ""}`}>
           <nav className="side-nav">
             <button className={section === "chat" ? "side-link active" : "side-link"} onClick={() => go("chat")}>
@@ -665,6 +671,7 @@ function ChatPanel({
 }) {
   const [lightbox, setLightbox] = useState(null);
   const [cardHidden, setCardHidden] = useState(false);
+  const [mobileUi, setMobileUi] = useState(false);
   const listRef = useRef(null);
   const thinkingRef = useRef(null);
   const stickBottom = useRef(true);
@@ -672,6 +679,16 @@ function ChatPanel({
 
   const statusSteps = messages.filter((m) => !!m.meta?.status);
   const visibleMessages = messages.filter((m) => !m.meta?.status);
+  const showCreative =
+    !!creative && !creative.meta?.failed && !creative.meta?.parse_error;
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 820px)");
+    const apply = () => setMobileUi(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
 
   // New creative → show card again
   useEffect(() => {
@@ -760,7 +777,7 @@ function ChatPanel({
               className={`bubble ${m.role}${wide ? " wide" : ""}`}
             >
               <div className="role">{m.role === "user" ? "Вы" : "Авитолог"}</div>
-              <div className="body">{m.content}</div>
+              <div className="bubble-text">{m.content}</div>
               {!!imgs.length && (
                 <div className="thumbs">
                   {imgs.map((img, i) => (
@@ -797,7 +814,7 @@ function ChatPanel({
             </div>
           </div>
         )}
-        {creative && !cardHidden && (
+        {showCreative && !cardHidden && (
           <div className="creative">
             <div className="creative-head">
               <div className="creative-title">{creative.title || "Креатив"}</div>
@@ -834,7 +851,7 @@ function ChatPanel({
             </div>
           </div>
         )}
-        {creative && cardHidden && (
+        {showCreative && cardHidden && (
           <button type="button" className="btn-show-card" onClick={() => setCardHidden(false)}>
             Показать черновик: {creative.title || "креатив"}
           </button>
@@ -879,7 +896,7 @@ function ChatPanel({
                   if (!busy) handleSend();
                 }
               }}
-              placeholder="Enter — отправить · Shift+Enter — абзац"
+              placeholder={mobileUi ? "Сообщение или фото…" : "Enter — отправить · Shift+Enter — абзац"}
             />
           </div>
           <button className="primary send" disabled={busy} onClick={handleSend}>
