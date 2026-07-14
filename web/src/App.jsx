@@ -717,9 +717,22 @@ function ChatPanel({
   const lastCreativeId = useRef(null);
 
   const statusSteps = messages.filter((m) => !!m.meta?.status);
-  const visibleMessages = messages.filter((m) => !m.meta?.status);
   const showCreative =
     !!creative && !creative.meta?.failed && !creative.meta?.parse_error;
+  // One post = card. Hide the assistant bubble that duplicates the same draft+photos.
+  const visibleMessages = messages.filter((m) => {
+    if (m.meta?.status) return false;
+    if (
+      showCreative &&
+      !cardHidden &&
+      m.role === "assistant" &&
+      m.meta?.creative_id &&
+      m.meta.creative_id === creative?.id
+    ) {
+      return false;
+    }
+    return true;
+  });
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 820px)");
@@ -807,6 +820,12 @@ function ChatPanel({
         )}
         {visibleMessages.map((m) => {
           const wide = m.role === "assistant";
+          const systemish = !!(
+            m.meta?.test_run ||
+            m.meta?.banner ||
+            m.meta?.delivery ||
+            m.meta?.onboarding
+          );
           const imgs = Array.isArray(m.attachments)
             ? m.attachments.filter((a) => {
                 const u = String(a?.url || "");
@@ -826,7 +845,9 @@ function ChatPanel({
               className={`bubble ${m.role}${wide ? " wide" : ""}`}
             >
               <div className="role">{m.role === "user" ? "Вы" : "Авитолог"}</div>
-              <div className="bubble-text">{formatChatText(m.content, { allowBold: false })}</div>
+              <div className="bubble-text">
+                {formatChatText(m.content, { allowBold: systemish })}
+              </div>
               {!!imgs.length && (
                 <div className="thumbs">
                   {imgs.map((img, i) => (

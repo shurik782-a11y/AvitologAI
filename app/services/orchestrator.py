@@ -245,7 +245,7 @@ def _strip_md_markup(text: str) -> str:
 
 
 def _capitalize_orthography(text: str) -> str:
-    """Capitalize start of text, paragraphs, and sentences after .!?…"""
+    """Capitalize start of each line/paragraph and sentences after .!?…"""
     t = text or ""
     if not t:
         return t
@@ -256,17 +256,14 @@ def _capitalize_orthography(text: str) -> str:
                 return s[:i] + ch.upper() + s[i + 1 :]
         return s
 
-    parts = t.split("\n\n")
-    out: list[str] = []
-    for para in parts:
-        p = _cap_first_alpha(para)
+    # Each non-empty line (sections join with blank lines; LLM often uses single \n)
+    lines = [_cap_first_alpha(line) if line.strip() else line for line in t.split("\n")]
+    t = "\n".join(lines)
 
-        def _repl(m: re.Match[str]) -> str:
-            return m.group(1) + m.group(2).upper()
+    def _repl(m: re.Match[str]) -> str:
+        return m.group(1) + m.group(2).upper()
 
-        p = re.sub(r"([.!?…]\s+)([a-zа-яё])", _repl, p, flags=re.IGNORECASE)
-        out.append(p)
-    return "\n\n".join(out)
+    return re.sub(r"([.!?…]\s+)([a-zа-яё])", _repl, t, flags=re.IGNORECASE)
 
 
 def _polish_user_text(text: str, *, fallback: str = "") -> str:
