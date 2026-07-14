@@ -29,6 +29,7 @@ from app.services.prompts import (
     join_sections,
     project_slots_block,
 )
+from app.services.media_store import persist_attachment_list, persist_data_url
 from app.services.status_steps import clear_status_messages, emit_status, is_status_message
 from app.services.test_run import is_make_post_request, is_test_run, test_run_system_note
 
@@ -233,6 +234,46 @@ def _strip_title_spam(text: str) -> str:
     return t
 
 
+def _strip_md_markup(text: str) -> str:
+    """Remove markdown bold/italic from user-facing ad copy (not system UI)."""
+    t = text or ""
+    t = re.sub(r"\*\*([^*]+)\*\*", r"\1", t)
+    t = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"\1", t)
+    t = re.sub(r"__([^_]+)__", r"\1", t)
+    t = re.sub(r"(?<!_)_([^_]+)_(?!_)", r"\1", t)
+    return t
+
+
+def _capitalize_orthography(text: str) -> str:
+    """Capitalize start of text, paragraphs, and sentences after .!?…"""
+    t = text or ""
+    if not t:
+        return t
+
+    def _cap_first_alpha(s: str) -> str:
+        for i, ch in enumerate(s):
+            if ch.isalpha():
+                return s[:i] + ch.upper() + s[i + 1 :]
+        return s
+
+    parts = t.split("\n\n")
+    out: list[str] = []
+    for para in parts:
+        p = _cap_first_alpha(para)
+
+        def _repl(m: re.Match[str]) -> str:
+            return m.group(1) + m.group(2).upper()
+
+        p = re.sub(r"([.!?…]\s+)([a-zа-яё])", _repl, p, flags=re.IGNORECASE)
+        out.append(p)
+    return "\n\n".join(out)
+
+
+def _polish_user_text(text: str, *, fallback: str = "") -> str:
+    t = _strip_md_markup(_ru_field(text, fallback=fallback))
+    return _capitalize_orthography(t) if t else fallback
+
+
 def _polish_title(parsed: dict[str, Any], project: Project) -> str:
     title = _strip_title_spam(_ru_field(str(parsed.get("title") or "")))
     sq = _strip_title_spam(
@@ -257,10 +298,10 @@ def _polish_title(parsed: dict[str, Any], project: Project) -> str:
     )
     if (not title or bad) and (sq or off):
         title = f"{sq} {off}".strip()
-    title = _strip_title_spam(title)
+    title = _strip_title_spam(_strip_md_markup(title))
     if not title:
         title = sq or "Объявление"
-    title = title[0].upper() + title[1:]
+    title = _capitalize_orthography(title)
     if len(title) > 50:
         title = title[:50].rstrip(" ,;-–—")
     return title
@@ -271,7 +312,7 @@ def _clean_sections(sections: dict) -> dict[str, str]:
     if not isinstance(sections, dict):
         return out
     for k, v in sections.items():
-        s = _ru_field(str(v or ""))
+        s = _polish_user_text(str(v or ""))
         if s:
             out[str(k)] = s
     return out
@@ -286,8 +327,8 @@ def _normalize_paragraphs(text: str) -> str:
 def _polish_description(description: str, sections: dict) -> str:
     joined = _normalize_paragraphs(join_sections(sections))
     if joined:
-        return joined
-    desc = _normalize_paragraphs(_ru_field(description))
+        return _polish_user_text(joined) or joined
+    desc = _normalize_paragraphs(_polish_user_text(description))
     return desc or "Не удалось собрать текст. Напишите правку или «сделай пост» ещё раз."
 
 
@@ -411,7 +452,7 @@ async def run_orchestrator(
         project_id=project.id,
         role="user",
         content=user_text,
-        attachments=[{"type": "image", "url": u[:120] + ("…" if len(u) > 120 else "")} for u in images],
+        attachments=persist_attachment_list(images, max_n=8),
         meta={"revise_of": revise_of_creative_id} if revise_of_creative_id else {},
     )
     db.add(user_msg)
@@ -690,10 +731,10 @@ async def run_orchestrator(
         sections,
     )
     title = _polish_title(parsed, project)
-    analysis = _ru_field(str(parsed.get("analysis") or ""), fallback="")
+    analysis = _polish_user_text(str(parsed.get("analysis") or ""), fallback="")
     if not analysis:
-        analysis = _ru_field(vision_notes, fallback="")
-    ad_idea = _ru_field(str(parsed.get("ad_idea") or project.ad_idea or ""))
+        analysis = _polish_user_text(vision_notes, fallback="")
+    ad_idea = _polish_user_text(str(parsed.get("ad_idea") or project.ad_idea or ""))
 
     need_images = bool(parsed.get("need_images", True))
     if text_only:
@@ -859,11 +900,11 @@ async def run_orchestrator(
         )
     )
 
-    # User-facing: Russian only, no English briefs / CoT; plain title (no markdown **)
+    # User-facing ad copy: plain text (no **); system statuses use ** separately
     pretty_parts = [title, "", description]
     if analysis:
         pretty_parts.extend(["", analysis])
-    pretty = "\n".join(pretty_parts)
+    pretty = _polish_user_text("\n".join(pretty_parts))
     if meta.get("propose_new_idea"):
         pretty += "\n\nМожно сделать вариант с другой идеей — напишите, если нужно."
     parse_failed = bool(parsed.get("parse_error"))

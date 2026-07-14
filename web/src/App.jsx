@@ -49,6 +49,29 @@ async function copyText(text) {
   }
 }
 
+/** Status steps may use **label**; ad copy shows plain text (asterisks stripped). */
+function formatChatText(text, { allowBold = false } = {}) {
+  const raw = String(text || "");
+  if (!raw) return null;
+  if (!allowBold) {
+    return raw
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "$1");
+  }
+  const parts = [];
+  const re = /\*\*([^*]+)\*\*/g;
+  let last = 0;
+  let m;
+  let key = 0;
+  while ((m = re.exec(raw))) {
+    if (m.index > last) parts.push(raw.slice(last, m.index));
+    parts.push(<strong key={`b${key++}`}>{m[1]}</strong>);
+    last = m.index + m[0].length;
+  }
+  if (last < raw.length) parts.push(raw.slice(last));
+  return parts.length ? parts : raw;
+}
+
 function PaperclipIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -172,7 +195,12 @@ export default function App() {
     setBusy(true);
     try {
       setMessages(await api.getMessages(id));
-      setCreative(null);
+      const creatives = await api.getCreatives(id);
+      const latest =
+        (creatives || []).find((c) => c.status === "draft" && !c.meta?.failed && !c.meta?.parse_error) ||
+        (creatives || []).find((c) => !c.meta?.failed && !c.meta?.parse_error) ||
+        null;
+      setCreative(latest);
       await refreshProjects();
     } catch (e) {
       setError(e.message);
@@ -780,7 +808,17 @@ function ChatPanel({
         {visibleMessages.map((m) => {
           const wide = m.role === "assistant";
           const imgs = Array.isArray(m.attachments)
-            ? m.attachments.filter((a) => a?.url && !String(a.url).includes("…"))
+            ? m.attachments.filter((a) => {
+                const u = String(a?.url || "");
+                if (!u || u.includes("…")) return false;
+                // Optimistic local send still has data:; after reload only durable URLs.
+                if (u.startsWith("data:")) return !!m.meta?.local;
+                return (
+                  u.startsWith("/uploads/") ||
+                  u.startsWith("http://") ||
+                  u.startsWith("https://")
+                );
+              })
             : [];
           return (
             <div
@@ -788,7 +826,7 @@ function ChatPanel({
               className={`bubble ${m.role}${wide ? " wide" : ""}`}
             >
               <div className="role">{m.role === "user" ? "Вы" : "Авитолог"}</div>
-              <div className="bubble-text">{m.content}</div>
+              <div className="bubble-text">{formatChatText(m.content, { allowBold: false })}</div>
               {!!imgs.length && (
                 <div className="thumbs">
                   {imgs.map((img, i) => (
@@ -815,11 +853,13 @@ function ChatPanel({
             </div>
             <div className="thinking-steps" ref={thinkingRef}>
               {statusSteps.length === 0 && (
-                <div className="thinking-step">Обрабатываю запрос…</div>
+                <div className="thinking-step">
+                  {formatChatText("**Обрабатываю запрос**", { allowBold: true })}
+                </div>
               )}
               {statusSteps.map((s) => (
                 <div key={s.id} className="thinking-step">
-                  {s.content}
+                  {formatChatText(s.content, { allowBold: true })}
                 </div>
               ))}
             </div>
@@ -828,7 +868,9 @@ function ChatPanel({
         {showCreative && !cardHidden && (
           <div className="creative">
             <div className="creative-head">
-              <div className="creative-title">{creative.title || "Креатив"}</div>
+              <div className="creative-title">
+                {formatChatText(creative.title || "Креатив", { allowBold: false })}
+              </div>
               <button
                 type="button"
                 className="btn-ghost-sm"
@@ -838,7 +880,7 @@ function ChatPanel({
                 Скрыть
               </button>
             </div>
-            <pre>{creative.description}</pre>
+            <pre>{formatChatText(creative.description || "", { allowBold: false })}</pre>
             {!!creative.images?.length && (
               <div className="thumbs creative-thumbs">
                 {creative.images.map((img, i) => (

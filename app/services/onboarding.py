@@ -10,6 +10,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.config import settings
 from app.db import AppSettings, Message, MetricEvent, Project
+from app.services.media_store import persist_attachment_list, persist_reference_list
 from app.services.openrouter import OpenRouterError, chat_completions
 from app.services.prompts import ONBOARDING_SEED, ONBOARDING_SYSTEM
 from app.services.status_steps import clear_status_messages, emit_status
@@ -130,8 +131,9 @@ async def run_onboarding(
     extra["onboarding_round"] = round_idx
     if images:
         refs = list(extra.get("reference_images") or [])
-        for u in images[:8]:
-            refs.append(u[:500] if isinstance(u, str) else str(u)[:500])
+        for u in persist_reference_list(images, max_n=8):
+            if u not in refs:
+                refs.append(u)
         extra["reference_images"] = refs[-12:]
         extra["reference_received"] = True
     project.extra = extra
@@ -141,7 +143,7 @@ async def run_onboarding(
         project_id=project.id,
         role="user",
         content=user_text,
-        attachments=[{"type": "image", "url": (u[:120] + "…") if len(u) > 120 else u} for u in images],
+        attachments=persist_attachment_list(images, max_n=8),
         meta={"onboarding": True, "round": round_idx},
     )
     db.add(user_msg)

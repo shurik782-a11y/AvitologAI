@@ -9,10 +9,13 @@ from app.db import Message
 
 def emit_status(db: Session, project_id: int, text: str, step: str) -> Message:
     """Persist a short action status for the user (not for LLM history)."""
+    label = (text or "").strip().strip("*").strip()
+    # System status lines only: **Шаг** — ad copy must stay plain text without markdown.
+    content = f"**{label}**" if label else ""
     msg = Message(
         project_id=project_id,
         role="assistant",
-        content=text.strip(),
+        content=content,
         attachments=[],
         meta={"status": True, "step": step},
     )

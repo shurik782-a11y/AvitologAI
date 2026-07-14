@@ -31,7 +31,7 @@ def persist_data_url(data_url: str) -> str:
         return raw
     m = _DATA_URL_RE.match(raw)
     if not m:
-        return raw[:500] if len(raw) > 500 else raw
+        return ""
     mime = m.group(1).lower()
     try:
         blob = base64.b64decode(m.group(2), validate=False)
@@ -41,6 +41,20 @@ def persist_data_url(data_url: str) -> str:
         return ""
     suffix = ".jpg" if "jpeg" in mime or mime.endswith("jpg") else f".{mime.split('/')[-1]}"
     return save_bytes(blob, suffix=suffix)
+
+
+def persist_attachment_list(urls: list | None, *, max_n: int = 8) -> list[dict]:
+    """Save chat photos to disk; return [{type,url}] with durable /uploads paths only."""
+    out: list[dict] = []
+    for u in urls or []:
+        if not isinstance(u, str):
+            continue
+        path = persist_data_url(u)
+        if path.startswith("/uploads/") or path.startswith("http://") or path.startswith("https://"):
+            out.append({"type": "image", "url": path})
+        if len(out) >= max_n:
+            break
+    return out
 
 
 def persist_reference_list(urls: list | None, *, max_n: int = 5) -> list[str]:
