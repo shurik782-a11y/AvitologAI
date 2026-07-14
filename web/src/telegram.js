@@ -3,8 +3,8 @@
 const HEADER = "#12161f";
 const BG = "#0e1118";
 const FLOOR_TOP = 52;
-const FLOOR_BOTTOM = 12;
-const FLOOR_SIDE = 8;
+const FLOOR_BOTTOM = 20;
+const FLOOR_SIDE = 4;
 
 function num(n) {
   const v = Number(n);

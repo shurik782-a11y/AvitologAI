@@ -413,8 +413,19 @@ export default function App() {
       <header className="topbar">
         <div className="topbar-left">
           <div className="brand">AvitologAI</div>
-          <div className="balance" title={billing?.error || ""}>
-            {billing?.label || "баланс…"}
+          <div className="balance" title={billing?.error || billing?.label || ""}>
+            {billing?.available && (billing.remaining != null || billing.usage_monthly != null) ? (
+              <>
+                {billing.remaining != null && (
+                  <span className="balance-line">осталось ${Number(billing.remaining).toFixed(2)}</span>
+                )}
+                {billing.usage_monthly != null && (
+                  <span className="balance-line">мес. ${Number(billing.usage_monthly).toFixed(2)}</span>
+                )}
+              </>
+            ) : (
+              <span className="balance-line">{billing?.label || "баланс…"}</span>
+            )}
           </div>
         </div>
 
