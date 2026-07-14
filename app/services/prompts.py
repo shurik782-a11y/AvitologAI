@@ -25,15 +25,20 @@ BUILTIN_LISTING_METHOD = """МЕТОДИКА УСПЕШНОГО ОБЪЯВЛЕН
    - Доставку и CTA пиши в description (fulfillment / cta), НЕ в заголовок.
 5) Текст (description) — НАСЫЩЕННЫЙ, по слотам; каждый непустой слот = отдельный абзац 1–4 предложения, живой русский:
    usp_4u → cta_1 → seller → fulfillment → product → objections → cta_2 → keywords → sku
+   - Между слотами в `description` и внутри поля `sections` — реальные переносы абзацев (\\n\\n), НЕ одна простыня.
+   - Списки (если есть) — отдельные строки с «• ».
    - usp_4u: сильное УТП (полезно / уникально / срочно / конкретно), не список тегов.
    - product: материалы, размеры/ассортимент, для кого, сезон — по фактам из брифа.
    - objections: снять 2–3 страха (качество, размер, доставка) без выдуманных гарантий.
    - keywords: только в конце, короткой строкой через запятую; НЕ дублировать весь текст.
    - Пустые слоты не заполняй выдумкой, но если данных из брифа достаточно — заполни usp/product/cta/objections обязательно.
    (fulfillment = условия/доставка/оплата/самовывоз — по смыслу ниши).
-6) Фото: первая (hero) доносит идею; далее закрывают боли. Число фото = photo_count проекта или явный запрос (max системы).
-   Формат 4:3; важный объект в безопасной зоне 1:1 (центр). Люди и текст на фото — ТОЛЬКО если allow_people / allow_text_overlays или явный запрос.
-   Если есть референс — предпочитай edit (edit_from=ref), не invent с нуля.
+6) Фото: первая (hero) доносит идею; далее закрывают боли.
+   - Число объектов в image_briefs РОВНО photo_count проекта или явный запрос пользователя (1–max). Не меньше и не больше.
+   - Все кадры — ОДИН И ТОТ ЖЕ товар (цвет, материал, силуэт, парность обуви). Нельзя менять модель товара между кадрами.
+   - Формат 4:3; важный объект в безопасной зоне 1:1 (центр).
+   - Люди и текст на фото — ТОЛЬКО если allow_people / allow_text_overlays.
+   - Если есть референс — edit_from=ref для всех кадров; после hero можно опираться на тот же товар.
 7) Правки текста без просьбы о фото → need_images=false. Новое объявление с другой идеей — только по запросу пользователя.
 """
 
@@ -86,9 +91,10 @@ analysis — 1–2 коротких предложения по-русски (д
   "price":"",
   "propose_new_idea":false
 }
-description = склейка непустых sections по порядку (абзацы). 
+description = склейка непустых sections по порядку, каждый слот — отдельный абзац (\\n\\n между слотами).
 need_images=false при текстовых правках / «без фото».
 title короткий (≤55–60 символов), без keyword-stuffing; description насыщенный по слотам.
+image_briefs: РОВНО photo_count элементов (роли hero/pain/proof), один и тот же товар на всех кадрах.
 """
 
 BUILTIN_VISION = """Ты — агент Vision в AvitologAI. Разбери фото для объявления Авито: факты + визуальный стиль.
@@ -220,9 +226,16 @@ def compose_image_style(
 ) -> str:
     parts = [BUILTIN_IMAGE_STYLE.strip()]
     if allow_people:
-        parts.append("People on photo are ALLOWED for this project.")
+        parts.append(
+            "People on photo are ALLOWED. If a person is shown, they must wear/hold "
+            "the SAME product from FACTS / reference (matching pair, color, material). "
+            "Never mix different shoes, bags, or SKUs on one person or across the set."
+        )
     else:
-        parts.append("Do NOT add people unless the scene brief explicitly requires it.")
+        parts.append(
+            "Do NOT depict people, faces, hands of models, or mannequins. "
+            "Product-only photo. Ignore any brief that asks for a person."
+        )
     if allow_text_overlays:
         parts.append("Text overlays / badges on image are ALLOWED if brief asks.")
     else:
@@ -238,6 +251,8 @@ def build_image_generation_prompt(
     scene_brief: str,
     style_rules: str = "",
     vision_facts: str = "",
+    shot_index: int = 1,
+    shot_total: int = 1,
 ) -> str:
     parts: list[str] = [IMAGE_PROMPT_PREFIX]
     style = (style_rules or compose_image_style()).strip()
@@ -247,6 +262,17 @@ def build_image_generation_prompt(
     if facts and not facts.startswith("(vision error"):
         parts.append(
             "FACTS FROM SOURCE PHOTO (do not contradict or invent beyond these):\n" + facts[:1200]
+        )
+        parts.append(
+            "PRODUCT IDENTITY (all shots in this set): keep the SAME product SKU/color/"
+            "material/silhouette/pair-matching as in FACTS. "
+            f"This is shot {shot_index} of {shot_total} — change camera angle/role only, "
+            "never swap to a different item."
+        )
+    else:
+        parts.append(
+            f"PRODUCT IDENTITY: shot {shot_index} of {shot_total}. "
+            "All photos must show the identical product; vary angle/role only."
         )
     brief = (scene_brief or "").strip()
     if brief:

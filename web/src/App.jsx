@@ -412,6 +412,13 @@ export default function App() {
     <div className="shell">
       <header className="topbar">
         <div className="topbar-left">
+          <button
+            className="icon-btn mobile-only menu-btn"
+            onClick={() => setNavOpen((v) => !v)}
+            aria-label="Меню"
+          >
+            ☰
+          </button>
           <div className="brand">AvitologAI</div>
           <div className="balance" title={billing?.error || billing?.label || ""}>
             {billing?.available && (billing.remaining != null || billing.usage_monthly != null) ? (
@@ -474,13 +481,6 @@ export default function App() {
               </div>
             )}
           </div>
-          <button
-            className="icon-btn mobile-only menu-btn"
-            onClick={() => setNavOpen((v) => !v)}
-            aria-label="Меню"
-          >
-            ☰
-          </button>
         </div>
       </header>
 

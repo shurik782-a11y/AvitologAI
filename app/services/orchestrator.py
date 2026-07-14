@@ -277,12 +277,18 @@ def _clean_sections(sections: dict) -> dict[str, str]:
     return out
 
 
+def _normalize_paragraphs(text: str) -> str:
+    t = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    return t
+
+
 def _polish_description(description: str, sections: dict) -> str:
-    joined = join_sections(sections)
-    desc = _ru_field(description)
-    if joined and (not desc or len(desc) < 220 or len(joined) > len(desc) + 40):
+    joined = _normalize_paragraphs(join_sections(sections))
+    if joined:
         return joined
-    return desc or joined or "Не удалось собрать текст. Напишите правку или «сделай пост» ещё раз."
+    desc = _normalize_paragraphs(_ru_field(description))
+    return desc or "Не удалось собрать текст. Напишите правку или «сделай пост» ещё раз."
 
 
 def _text_only_edit(user_text: str, revise: bool) -> bool:
@@ -294,16 +300,89 @@ def _text_only_edit(user_text: str, revise: bool) -> bool:
     return True
 
 
+_WORD_PHOTO_COUNT = {
+    "один": 1,
+    "одна": 1,
+    "одно": 1,
+    "два": 2,
+    "две": 2,
+    "три": 3,
+    "четыре": 4,
+    "пять": 5,
+}
+
+
 def _photo_budget(project: Project, parsed: dict[str, Any], user_text: str) -> int:
+    """Exact N from project or explicit user request (not inflated by soft LLM brief count)."""
     n = int(getattr(project, "photo_count", None) or settings.photo_count_default)
-    # Explicit number in request
-    m = re.search(r"(\d+)\s*фото", (user_text or "").lower())
+    t = (user_text or "").lower()
+    m = re.search(r"(\d+)\s*(?:фото|кадр(?:а|ов)?|изображен\w*|pictures?|photos?)", t)
     if m:
         n = int(m.group(1))
-    briefs = parsed.get("image_briefs")
-    if isinstance(briefs, list) and briefs:
-        n = max(n, min(len(briefs), settings.photo_count_max))
+    else:
+        for word, num in _WORD_PHOTO_COUNT.items():
+            if re.search(rf"\b{word}\s+(?:фото|кадр|изображен)", t):
+                n = num
+                break
     return max(1, min(n, settings.photo_count_max))
+
+
+_BRIEF_ROLES = ("hero", "pain", "proof")
+_ROLE_ANGLES = {
+    "hero": "primary hero angle, full product clearly visible",
+    "pain": "alternate angle addressing buyer doubts (detail, fit, or quality)",
+    "proof": "proof shot: material, construction, or use-detail close-up",
+}
+
+
+def _pad_image_briefs(
+    briefs: list[dict[str, Any]],
+    budget: int,
+    *,
+    scene_brief: str,
+    has_ref: bool,
+) -> list[dict[str, Any]]:
+    """Ensure exactly `budget` briefs with non-empty prompts."""
+    base = ""
+    for b in briefs:
+        p = str(b.get("prompt") or "").strip()
+        if p:
+            base = p
+            break
+    if not base:
+        base = (scene_brief or "").strip() or (
+            "Product listing photo matching source facts; clear commercial Avito shot"
+        )
+    out: list[dict[str, Any]] = []
+    for b in briefs[:budget]:
+        role = str(b.get("role") or "hero").strip() or "hero"
+        prompt = str(b.get("prompt") or "").strip() or base
+        edit_from = "ref" if has_ref else str(b.get("edit_from") or "none").lower()
+        if has_ref:
+            edit_from = "ref"
+        out.append({"role": role, "prompt": prompt, "edit_from": edit_from})
+    while len(out) < budget:
+        i = len(out)
+        role = _BRIEF_ROLES[i % len(_BRIEF_ROLES)]
+        angle = _ROLE_ANGLES[role]
+        out.append(
+            {
+                "role": role,
+                "prompt": (
+                    f"{base}. Shot {i + 1}/{budget}: {angle}. "
+                    "SAME product identity (color, material, silhouette, matching pair). "
+                    "Do not invent a different item."
+                ),
+                "edit_from": "ref" if has_ref else "none",
+            }
+        )
+    return out
+
+
+def _bytes_to_data_url(data: bytes, *, mime: str = "image/png") -> str:
+    import base64
+
+    return f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
 
 
 def _collect_refs(project: Project, incoming: list[str]) -> list[str]:
@@ -466,7 +545,9 @@ async def run_orchestrator(
         "Ответь СТРОГО одним JSON. Все тексты для объявления — на русском. "
         "Без рассуждений и без английского вне image_prompt. "
         "need_images=false для правок только текста. "
-        f"Число image_briefs ≈ photo_count={project.photo_count or 1} (max {settings.photo_count_max})."
+        f"Число image_briefs РОВНО photo_count={project.photo_count or 1} "
+        f"(или явное число из запроса; max {settings.photo_count_max}). "
+        "Не меньше. Один и тот же товар на всех кадрах."
     )
     if is_test_run(project):
         system = test_run_system_note() + "\n\n" + system
@@ -627,7 +708,15 @@ async def run_orchestrator(
         briefs = [{"role": "hero", "prompt": scene_brief, "edit_from": "ref" if vision_images else "none"}]
 
     budget = _photo_budget(project, parsed, user_text) if need_images else 0
-    briefs = briefs[:budget]
+    if need_images:
+        briefs = _pad_image_briefs(
+            briefs,
+            budget,
+            scene_brief=scene_brief,
+            has_ref=bool(vision_images),
+        )
+    else:
+        briefs = []
 
     style_rules = compose_image_style(
         project_style=project.image_style_prompt or "",
@@ -635,21 +724,35 @@ async def run_orchestrator(
         allow_text_overlays=bool(project.allow_text_overlays),
     )
     ref0 = vision_images[0] if vision_images else ""
+    hero_source: str | None = None
 
     if need_images and briefs:
         status_msgs.append(emit_status(db, project.id, "Планирую фото", "plan_images"))
+        total = len(briefs)
         for i, brief in enumerate(briefs):
             prompt_txt = str(brief.get("prompt") or scene_brief or "").strip()
             if not prompt_txt:
-                continue
-            edit_from = str(brief.get("edit_from") or "none").lower()
+                prompt_txt = (
+                    scene_brief
+                    or "Product listing photo matching source facts; clear commercial Avito shot"
+                )
             role = str(brief.get("role") or "photo")
             gen_prompt = build_image_generation_prompt(
                 scene_brief=prompt_txt,
                 style_rules=style_rules,
                 vision_facts=vision_notes,
+                shot_index=i + 1,
+                shot_total=total,
             )
-            use_edit = edit_from == "ref" and bool(ref0)
+            # Prefer ref for first shot; later shots edit from hero (same product) then ref
+            source = None
+            if i == 0 and ref0:
+                source = ref0
+            elif hero_source:
+                source = hero_source
+            elif ref0:
+                source = ref0
+            use_edit = bool(source)
             status_msgs.append(
                 emit_status(
                     db,
@@ -659,14 +762,16 @@ async def run_orchestrator(
                 )
             )
             try:
-                if use_edit:
+                if use_edit and source:
                     blobs = await edit_image(
-                        api_key, model=image_model, prompt=gen_prompt, source_image=ref0
+                        api_key, model=image_model, prompt=gen_prompt, source_image=source
                     )
                 else:
                     blobs = await generate_image(api_key, model=image_model, prompt=gen_prompt, n=1)
                 for blob in blobs:
                     image_paths.append(_save_image_bytes(blob))
+                    if i == 0 and not hero_source:
+                        hero_source = _bytes_to_data_url(blob)
                 db.add(MetricEvent(project_id=project.id, name="image.ok", value=1, payload={"role": role}))
             except OpenRouterError as exc:
                 db.add(
@@ -754,8 +859,8 @@ async def run_orchestrator(
         )
     )
 
-    # User-facing: Russian only, no English briefs / CoT
-    pretty_parts = [f"**{title}**", "", description]
+    # User-facing: Russian only, no English briefs / CoT; plain title (no markdown **)
+    pretty_parts = [title, "", description]
     if analysis:
         pretty_parts.extend(["", analysis])
     pretty = "\n".join(pretty_parts)
