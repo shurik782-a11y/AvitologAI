@@ -45,6 +45,7 @@ export const api = {
   addMemory: (id, body) =>
     request(`/api/projects/${id}/memories`, { method: "POST", body: JSON.stringify(body) }),
   getMessages: (id) => request(`/api/projects/${id}/messages`),
+  clearMessages: (id) => request(`/api/projects/${id}/messages`, { method: "DELETE" }),
   chat: (id, body) => request(`/api/projects/${id}/chat`, { method: "POST", body: JSON.stringify(body) }),
   approve: (pid, cid) =>
     request(`/api/projects/${pid}/creatives/${cid}/approve`, {

@@ -505,6 +505,19 @@ export default function App() {
               setPhotos={setPhotos}
               onSend={sendChat}
               onApprove={approve}
+              onClearChat={async () => {
+                if (!projectId) return;
+                if (!window.confirm("Удалить все сообщения в этом чате?")) return;
+                setBusy(true);
+                try {
+                  await api.clearMessages(projectId);
+                  setMessages([]);
+                } catch (e) {
+                  setError(e.message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
               busy={busy}
               onNeedProject={() => setPickerOpen(true)}
             />
@@ -646,14 +659,19 @@ function ChatPanel({
   setPhotos,
   onSend,
   onApprove,
+  onClearChat,
   busy,
   onNeedProject,
 }) {
   const [lightbox, setLightbox] = useState(null);
   const [cardHidden, setCardHidden] = useState(false);
   const listRef = useRef(null);
+  const thinkingRef = useRef(null);
   const stickBottom = useRef(true);
   const lastCreativeId = useRef(null);
+
+  const statusSteps = messages.filter((m) => !!m.meta?.status);
+  const visibleMessages = messages.filter((m) => !m.meta?.status);
 
   // New creative → show card again
   useEffect(() => {
@@ -668,9 +686,13 @@ function ChatPanel({
     if (!stickBottom.current) return;
     const el = listRef.current;
     if (!el) return;
-    // Instant jump — smooth scrollIntoView fights user when status messages stream in
     el.scrollTop = el.scrollHeight;
-  }, [messages, creative, cardHidden]);
+  }, [visibleMessages, creative, cardHidden, busy, statusSteps.length]);
+
+  useEffect(() => {
+    if (!busy || !thinkingRef.current) return;
+    thinkingRef.current.scrollTop = thinkingRef.current.scrollHeight;
+  }, [busy, statusSteps.length]);
 
   function onMessagesScroll() {
     const el = listRef.current;
@@ -680,7 +702,6 @@ function ChatPanel({
   }
 
   function unpinIfScrollUp(e) {
-    // Immediately allow reading history while the model is thinking / streaming
     const dy = e.deltaY ?? 0;
     if (dy < 0) stickBottom.current = false;
   }
@@ -703,11 +724,21 @@ function ChatPanel({
 
   return (
     <section className="chat-panel">
-      <div className="panel-head">
+      <div className="panel-head panel-head-row">
         <div>
           <div className="eyebrow">Чат проекта</div>
           <h1>{project.name}</h1>
         </div>
+        <button
+          type="button"
+          className="icon-btn clear-chat-btn"
+          title="Очистить чат"
+          aria-label="Очистить чат"
+          disabled={busy || !messages.length}
+          onClick={onClearChat}
+        >
+          <TrashIcon />
+        </button>
       </div>
       <div
         className="messages"
@@ -715,19 +746,20 @@ function ChatPanel({
         onScroll={onMessagesScroll}
         onWheel={unpinIfScrollUp}
       >
-        {!messages.length && <div className="empty-inline">Опишите товар или прикрепите фото.</div>}
-        {messages.map((m) => {
-          const isStatus = !!m.meta?.status;
-          const wide = m.role === "assistant" && !isStatus;
+        {!visibleMessages.length && !busy && (
+          <div className="empty-inline">Опишите товар или прикрепите фото.</div>
+        )}
+        {visibleMessages.map((m) => {
+          const wide = m.role === "assistant";
           const imgs = Array.isArray(m.attachments)
             ? m.attachments.filter((a) => a?.url && !String(a.url).includes("…"))
             : [];
           return (
             <div
               key={m.id}
-              className={`bubble ${m.role}${isStatus ? " status" : ""}${wide ? " wide" : ""}`}
+              className={`bubble ${m.role}${wide ? " wide" : ""}`}
             >
-              <div className="role">{m.role === "user" ? "Вы" : isStatus ? "Статус" : "Авитолог"}</div>
+              <div className="role">{m.role === "user" ? "Вы" : "Авитолог"}</div>
               <div className="body">{m.content}</div>
               {!!imgs.length && (
                 <div className="thumbs">
@@ -747,6 +779,24 @@ function ChatPanel({
             </div>
           );
         })}
+        {busy && (
+          <div className="thinking-tray" aria-live="polite">
+            <div className="thinking-head">
+              <span className="thinking-spinner" aria-hidden />
+              <span>Думаю…</span>
+            </div>
+            <div className="thinking-steps" ref={thinkingRef}>
+              {statusSteps.length === 0 && (
+                <div className="thinking-step">Обрабатываю запрос…</div>
+              )}
+              {statusSteps.map((s) => (
+                <div key={s.id} className="thinking-step">
+                  {s.content}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {creative && !cardHidden && (
           <div className="creative">
             <div className="creative-head">
@@ -1053,6 +1103,18 @@ function SettingsHub({ project, defaults, onOpen, onNeedProject, onSaveAvito }) 
 }
 
 function ModelSettings({ kind, project, defaults, onBack, onSave, busy }) {
+  const YES_NO = [
+    { value: "true", label: "Да" },
+    { value: "false", label: "Нет" },
+  ];
+  const PHOTO_COUNTS = [1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: String(n) }));
+  const LISTING_TYPES = [
+    { value: "product", label: "Товар" },
+    { value: "service", label: "Услуга" },
+    { value: "used", label: "Б/у" },
+    { value: "b2b", label: "B2B" },
+  ];
+
   const meta = {
     orch: {
       title: "Оркестратор",
@@ -1067,7 +1129,12 @@ function ModelSettings({ kind, project, defaults, onBack, onSave, busy }) {
         { key: "theme", label: "Тематика", rows: 2 },
         { key: "ideas", label: "Идеи", rows: 3 },
         { key: "constraints", label: "Ограничения", rows: 3 },
-        { key: "listing_type", label: "Тип (product/service/used/b2b)", rows: 1 },
+        {
+          key: "listing_type",
+          label: "Тип объявления",
+          type: "select",
+          options: LISTING_TYPES,
+        },
         { key: "ad_idea", label: "Идея объявления", rows: 3 },
         { key: "search_query", label: "Поисковый запрос (заголовок)", rows: 1 },
         { key: "conversion_offer", label: "Преимущество в заголовке", rows: 1 },
@@ -1075,11 +1142,38 @@ function ModelSettings({ kind, project, defaults, onBack, onSave, busy }) {
         { key: "buyer_pains", label: "Боли покупателя", rows: 3 },
         { key: "why_here", label: "Почему купить здесь", rows: 2 },
         { key: "company_info", label: "О компании / продавце", rows: 3 },
-        { key: "photo_count", label: "Число фото (1–5)", rows: 1 },
-        { key: "allow_people", label: "Люди на фото (true/false)", rows: 1 },
-        { key: "allow_text_overlays", label: "Текст на фото (true/false)", rows: 1 },
-        { key: "competitor_insights", label: "Insights конкурентов", rows: 5 },
-        { key: "visual_style_notes", label: "Стиль с референсов", rows: 3 },
+        {
+          key: "photo_count",
+          label: "Число фото",
+          type: "select",
+          options: PHOTO_COUNTS,
+        },
+        {
+          key: "allow_people",
+          label: "Люди на фото",
+          type: "select",
+          options: YES_NO,
+        },
+        {
+          key: "allow_text_overlays",
+          label: "Текст на фото",
+          type: "select",
+          options: YES_NO,
+        },
+        {
+          key: "competitor_insights",
+          label: "Выжимка по конкурентам",
+          rows: 5,
+          hint: "Сюда попадает краткий разбор после импорта CSV/XLSX (или можно дописать вручную). Используется при генерации текста объявления.",
+          importCompetitors: true,
+        },
+        {
+          key: "visual_style_notes",
+          label: "Стиль с референсов",
+          rows: 3,
+          type: "style_refs",
+          hint: "Опишите подачу: свет, фон, ракурс. Фото — образец предмета и стиля; текст поясняет фото.",
+        },
       ],
     },
     image: {
@@ -1109,15 +1203,22 @@ function ModelSettings({ kind, project, defaults, onBack, onSave, busy }) {
   }[kind];
 
   const [form, setForm] = useState({});
+  const [styleRefs, setStyleRefs] = useState([]);
   const [compHint, setCompHint] = useState("");
+
   useEffect(() => {
     const base = { [meta.modelKey]: project[meta.modelKey] || "" };
     meta.fields.forEach((f) => {
       const v = project[f.key];
       if (typeof v === "boolean") base[f.key] = v ? "true" : "false";
+      else if (f.key === "photo_count") base[f.key] = String(v ?? 1);
       else base[f.key] = v ?? "";
     });
     setForm(base);
+    const refs = Array.isArray(project.extra?.reference_images)
+      ? project.extra.reference_images.filter((u) => typeof u === "string")
+      : [];
+    setStyleRefs(refs.slice(0, 5));
   }, [project, kind]);
 
   const handleSave = () => {
@@ -1134,6 +1235,11 @@ function ModelSettings({ kind, project, defaults, onBack, onSave, busy }) {
         payload.allow_text_overlays =
           String(payload.allow_text_overlays).toLowerCase() === "true";
       }
+      payload.extra = {
+        ...(project.extra || {}),
+        reference_images: styleRefs.slice(0, 5),
+        ...(styleRefs.length ? { reference_received: true } : {}),
+      };
     }
     onSave(payload);
   };
@@ -1178,23 +1284,97 @@ function ModelSettings({ kind, project, defaults, onBack, onSave, busy }) {
           />
           <span className="field-hint">По умолчанию: {meta.fallback || "—"}</span>
         </label>
-        {meta.fields.map((f) => (
-          <label key={f.key}>
-            {f.label}
-            <textarea
-              rows={f.rows}
-              value={form[f.key] ?? ""}
-              onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
-            />
-          </label>
-        ))}
-        {kind === "orch" && (
-          <label>
-            Импорт таблицы конкурентов (CSV/XLSX)
-            <input type="file" accept=".csv,.xlsx,.xls" onChange={handleCompetitorsFile} />
-            {compHint && <span className="field-hint">{compHint}</span>}
-          </label>
-        )}
+        {meta.fields.map((f) => {
+          if (f.type === "select") {
+            return (
+              <label key={f.key}>
+                {f.label}
+                <select
+                  className="field-select"
+                  value={form[f.key] ?? f.options?.[0]?.value ?? ""}
+                  onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
+                >
+                  {f.options.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            );
+          }
+          if (f.type === "style_refs") {
+            return (
+              <div key={f.key} className="field-block">
+                <label>
+                  {f.label}
+                  <textarea
+                    rows={f.rows}
+                    value={form[f.key] ?? ""}
+                    onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
+                  />
+                  {f.hint && <span className="field-hint">{f.hint}</span>}
+                </label>
+                <div className="style-refs">
+                  <div className="style-refs-label">Референс-фото (до 5)</div>
+                  {!!styleRefs.length && (
+                    <div className="thumbs">
+                      {styleRefs.map((url, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          className="thumb"
+                          title="Убрать"
+                          onClick={() => setStyleRefs((prev) => prev.filter((_, j) => j !== i))}
+                        >
+                          <img src={url} alt="" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <label className="attach-file-label">
+                    Добавить фото
+                    <input
+                      hidden
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={async (e) => {
+                        const urls = await Promise.all(
+                          Array.from(e.target.files || [])
+                            .slice(0, 5)
+                            .map(fileToDataUrl)
+                        );
+                        setStyleRefs((prev) => [...prev, ...urls].slice(0, 5));
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+            );
+          }
+          return (
+            <label key={f.key}>
+              {f.label}
+              <textarea
+                rows={f.rows}
+                value={form[f.key] ?? ""}
+                onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
+              />
+              {f.hint && <span className="field-hint">{f.hint}</span>}
+              {f.importCompetitors && (
+                <span className="comp-import">
+                  <span className="field-hint">
+                    Импорт таблицы конкурентов — заполнит поле выше
+                  </span>
+                  <input type="file" accept=".csv,.xlsx,.xls" onChange={handleCompetitorsFile} />
+                  {compHint && <span className="field-hint">{compHint}</span>}
+                </span>
+              )}
+            </label>
+          );
+        })}
         <button className="primary" disabled={busy} onClick={handleSave}>
           Сохранить для проекта
         </button>

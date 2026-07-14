@@ -112,7 +112,7 @@ def approve_and_publish_sync_message(
     from app.services.test_run import is_test_run
 
     if is_test_run(project):
-        status = emit_status(db, project.id, "Эмулирую публикацию на Авито", "publish_test")
+        emit_status(db, project.id, "Эмулирую публикацию на Авито", "publish_test")
         ready = Message(
             project_id=project.id,
             role="assistant",
@@ -131,7 +131,7 @@ def approve_and_publish_sync_message(
             },
         )
     else:
-        status = emit_status(db, project.id, "Отправляю на публикацию", "publish")
+        emit_status(db, project.id, "Отправляю на публикацию", "publish")
         detail = (
             f"Статус подгрузки: {run.status}"
             if run
@@ -149,4 +149,7 @@ def approve_and_publish_sync_message(
     db.add(ready)
     db.commit()
     db.refresh(ready)
-    return [status, ready]
+    from app.services.status_steps import clear_status_messages
+
+    clear_status_messages(db, project.id)
+    return [ready]

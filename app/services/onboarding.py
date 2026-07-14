@@ -12,7 +12,7 @@ from app.config import settings
 from app.db import AppSettings, Message, MetricEvent, Project
 from app.services.openrouter import OpenRouterError, chat_completions
 from app.services.prompts import ONBOARDING_SEED, ONBOARDING_SYSTEM
-from app.services.status_steps import emit_status
+from app.services.status_steps import clear_status_messages, emit_status
 from app.services.test_run import is_test_run
 
 __all__ = ["ONBOARDING_SEED", "run_onboarding"]
@@ -218,7 +218,7 @@ async def run_onboarding(
     if not extra.get("reference_received"):
         out.append(emit_status(db, project.id, "Прошу референс-фото (скрепка)", "refs"))
     if project.competitor_insights:
-        out.append(emit_status(db, project.id, "Учитываю insights конкурентов", "competitors"))
+        out.append(emit_status(db, project.id, "Учитываю выжимку по конкурентам", "competitors"))
 
     out.append(emit_status(db, project.id, "Прописываю промпты и слоты", "prompts"))
 
@@ -244,7 +244,7 @@ async def run_onboarding(
             f"(люди: {'да' if project.allow_people else 'нет'}, "
             f"текст на фото: {'да' if project.allow_text_overlays else 'нет'})\n"
             f"• Референсы: {'есть' if extra.get('reference_received') else 'нет'}\n"
-            f"• Конкуренты: {'insights есть' if project.competitor_insights else 'можно импортировать CSV/XLSX в Настройках'}\n\n"
+            f"• Конкуренты: {'выжимка есть' if project.competitor_insights else 'можно импортировать CSV/XLSX в Настройках'}\n\n"
             "Правки — в Настройках или напишите оркестратору. Можно переходить к креативу."
         )
         if assistant_text:
@@ -261,8 +261,8 @@ async def run_onboarding(
         db.add(project)
         db.commit()
         db.refresh(assistant)
-        out.append(assistant)
-        return user_msg, out, True
+        clear_status_messages(db, project.id)
+        return user_msg, [assistant], True
 
     # Continue onboarding
     project.onboarding_status = "awaiting_brief"
@@ -285,5 +285,5 @@ async def run_onboarding(
     db.add(MetricEvent(project_id=project.id, name="onboarding.round", value=float(round_idx)))
     db.commit()
     db.refresh(assistant)
-    out.append(assistant)
-    return user_msg, out, False
+    clear_status_messages(db, project.id)
+    return user_msg, [assistant], False

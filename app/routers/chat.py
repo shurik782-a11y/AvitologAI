@@ -39,6 +39,19 @@ def list_messages(project_id: int, db: Session = Depends(get_db)) -> list[Messag
     )
 
 
+@router.delete("/projects/{project_id}/messages")
+def clear_messages(project_id: int, db: Session = Depends(get_db)) -> dict[str, int]:
+    """Delete all chat messages for the project; creatives stay."""
+    if not db.get(Project, project_id):
+        raise HTTPException(404, "Project not found")
+    rows = list(db.scalars(select(Message).where(Message.project_id == project_id)))
+    n = len(rows)
+    for m in rows:
+        db.delete(m)
+    db.commit()
+    return {"ok": True, "deleted": n}
+
+
 @router.get("/projects/{project_id}/creatives", response_model=list[CreativeOut])
 def list_creatives(project_id: int, db: Session = Depends(get_db)) -> list[Creative]:
     if not db.get(Project, project_id):

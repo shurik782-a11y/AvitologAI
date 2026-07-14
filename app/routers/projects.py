@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from sqlalchemy.orm.attributes import flag_modified
+
 from app.config import settings
 from app.db import Message, MetricEvent, Project, get_db, utcnow
 from app.schemas import (
@@ -20,6 +22,7 @@ from app.schemas import (
 from app.services import memory as memory_svc
 from app.services.avito_feed import ensure_feed_token, feed_public_url
 from app.services.competitors import import_competitors_table
+from app.services.media_store import persist_reference_list
 from app.services.onboarding import ONBOARDING_SEED
 
 router = APIRouter()
@@ -150,8 +153,24 @@ def update_project(project_id: int, body: ProjectUpdate, db: Session = Depends(g
         data.pop("avito_client_secret", None)
     if "photo_count" in data and data["photo_count"] is not None:
         data["photo_count"] = max(1, min(int(data["photo_count"]), settings.photo_count_max))
+    if "extra" in data and data["extra"] is not None:
+        incoming = dict(data["extra"] or {})
+        merged = dict(row.extra or {})
+        if "reference_images" in incoming:
+            merged["reference_images"] = persist_reference_list(
+                incoming.get("reference_images") or [], max_n=5
+            )
+            if merged["reference_images"]:
+                merged["reference_received"] = True
+        for k, v in incoming.items():
+            if k == "reference_images":
+                continue
+            merged[k] = v
+        data["extra"] = merged
     for k, v in data.items():
         setattr(row, k, v)
+    if "extra" in data:
+        flag_modified(row, "extra")
     row.updated_at = utcnow()
     db.add(row)
     db.commit()

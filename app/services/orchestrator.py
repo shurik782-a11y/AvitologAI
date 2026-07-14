@@ -29,7 +29,7 @@ from app.services.prompts import (
     join_sections,
     project_slots_block,
 )
-from app.services.status_steps import emit_status, is_status_message
+from app.services.status_steps import clear_status_messages, emit_status, is_status_message
 from app.services.test_run import is_make_post_request, is_test_run, test_run_system_note
 
 
@@ -632,4 +632,5 @@ async def run_orchestrator(
     db.add(assistant_msg)
     db.commit()
     db.refresh(assistant_msg)
-    return user_msg, [*status_msgs, assistant_msg], creative
+    clear_status_messages(db, project.id)
+    return user_msg, [assistant_msg], creative
