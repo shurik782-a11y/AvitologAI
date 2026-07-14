@@ -12,6 +12,7 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     create_engine,
@@ -103,6 +104,17 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     project: Mapped[Project] = relationship(back_populates="messages")
+
+
+class StoredMedia(Base):
+    """Durable image blobs (Postgres survives Railway redeploys; disk is only a cache)."""
+
+    __tablename__ = "stored_media"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    content_type: Mapped[str] = mapped_column(String(64), default="image/png")
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class Memory(Base):

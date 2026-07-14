@@ -5,9 +5,9 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
@@ -25,6 +25,7 @@ from app.routers import (
     telegram,
 )
 from app.services.auth import require_admin_user
+from app.services.media_store import load_bytes, uploads_dir
 from app.services.telegram import setup_telegram
 
 logging.basicConfig(level=logging.INFO)
@@ -76,9 +77,23 @@ app.include_router(billing.router, prefix="/api/billing", tags=["billing"], depe
 app.include_router(telegram.router, prefix="/api", tags=["telegram"])
 
 static_dir = Path(__file__).resolve().parent.parent / "web" / "dist"
-uploads_dir = Path(settings.data_dir) / "uploads"
-uploads_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/uploads", StaticFiles(directory=str(uploads_dir)), name="uploads")
+uploads_dir().mkdir(parents=True, exist_ok=True)
+
+
+@app.get("/uploads/{name}")
+def serve_upload(name: str) -> Response:
+    """Serve generated/chat images: disk cache first, then Postgres (survives redeploy)."""
+    if ".." in name or "/" in name or "\\" in name:
+        raise HTTPException(404, "Not found")
+    loaded = load_bytes(name)
+    if not loaded:
+        raise HTTPException(404, "Not found")
+    data, content_type = loaded
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 @app.get("/api/health")

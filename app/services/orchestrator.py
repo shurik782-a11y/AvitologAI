@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import json
 import re
-import uuid
-from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -14,6 +12,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.config import settings
 from app.db import AppSettings, Creative, Message, MetricEvent, Project
 from app.services import memory as memory_svc
+from app.services.media_store import load_bytes, persist_attachment_list, save_bytes
 from app.services.openrouter import (
     OpenRouterError,
     build_vision_user_content,
@@ -29,7 +28,6 @@ from app.services.prompts import (
     join_sections,
     project_slots_block,
 )
-from app.services.media_store import persist_attachment_list, persist_data_url
 from app.services.status_steps import clear_status_messages, emit_status, is_status_message
 from app.services.test_run import is_make_post_request, is_test_run, test_run_system_note
 
@@ -175,12 +173,7 @@ def _ru_field(text: str, *, fallback: str = "") -> str:
 
 
 def _save_image_bytes(data: bytes, suffix: str = ".png") -> str:
-    folder = Path(settings.data_dir) / "uploads"
-    folder.mkdir(parents=True, exist_ok=True)
-    name = f"{uuid.uuid4().hex}{suffix}"
-    path = folder / name
-    path.write_bytes(data)
-    return f"/uploads/{name}"
+    return save_bytes(data, suffix=suffix)
 
 
 def _normalize_incoming_images(images: list[str]) -> list[str]:
@@ -190,13 +183,16 @@ def _normalize_incoming_images(images: list[str]) -> list[str]:
             out.append(img)
             continue
         if img.startswith("/uploads/"):
-            path = Path(settings.data_dir) / "uploads" / Path(img).name
-            if path.is_file() and path.stat().st_size < 4_000_000:
-                import base64
+            loaded = load_bytes(img)
+            if not loaded:
+                continue
+            blob, mime = loaded
+            if len(blob) >= 4_000_000:
+                continue
+            import base64
 
-                b64 = base64.b64encode(path.read_bytes()).decode("ascii")
-                mime = "image/jpeg" if path.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
-                out.append(f"data:{mime};base64,{b64}")
+            b64 = base64.b64encode(blob).decode("ascii")
+            out.append(f"data:{mime};base64,{b64}")
     return out
 
 
